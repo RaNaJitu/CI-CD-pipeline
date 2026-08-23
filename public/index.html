@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CI/CD Learning — DEV · Stage · Prod</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Space+Grotesk:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="bg-grid" aria-hidden="true"></div>
+    <div class="bg-glow" aria-hidden="true"></div>
+
+    <header class="site-header">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-name">PipelineLab</span>
+      </div>
+      <div class="live-env" id="live-env" aria-live="polite">
+        <span class="live-dot"></span>
+        <span id="live-env-label">Loading…</span>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <p class="hero-eyebrow">Continuous Integration · Continuous Delivery</p>
+        <h1 class="hero-brand">CI/CD Learning</h1>
+        <p class="hero-lead">
+          Follow how code moves through <strong>DEV</strong>, <strong>Stage</strong>, and
+          <strong>Prod</strong> — and what each environment is for.
+        </p>
+        <div class="hero-cta">
+          <button type="button" class="btn btn-primary" id="btn-tour">
+            Tour the pipeline
+          </button>
+          <button type="button" class="btn btn-ghost" id="btn-concepts">
+            What is CI/CD?
+          </button>
+        </div>
+      </section>
+
+      <section class="pipeline-section" id="pipeline" aria-label="Environment pipeline">
+        <div class="section-head">
+          <h2>The release path</h2>
+          <p>Select an environment to see its steps and learning points.</p>
+        </div>
+
+        <div class="pipeline-track" id="pipeline-track" role="tablist">
+          <!-- filled by JS -->
+        </div>
+
+        <article class="env-panel" id="env-panel" hidden>
+          <div class="env-panel-head">
+            <span class="env-badge" id="panel-badge"></span>
+            <h3 id="panel-title"></h3>
+          </div>
+          <p class="env-desc" id="panel-desc"></p>
+          <div class="env-columns">
+            <div>
+              <h4>Pipeline steps</h4>
+              <ol class="step-list" id="panel-steps"></ol>
+            </div>
+            <div>
+              <h4>What to learn</h4>
+              <ul class="learn-list" id="panel-learn"></ul>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="concepts" id="concepts">
+        <div class="section-head">
+          <h2>Core ideas</h2>
+          <p>Short definitions you can use in interviews and day-to-day DevOps work.</p>
+        </div>
+        <div class="concept-grid" id="concept-grid">
+          <!-- filled by JS -->
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>PipelineLab · Node.js demo · Active runtime env shown in the header</p>
+    </footer>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
