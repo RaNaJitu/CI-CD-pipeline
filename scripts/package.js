@@ -1,0 +1,50 @@
+/**
+ * Create a deployable tarball from dist/.
+ *
+ * Principle: build once → package once → promote the same .tar.gz to DEV/STAGE/PROD.
+ *
+ * Output (default): artifacts/node-app.tar.gz
+ * Or versioned:     artifacts/<ARTIFACT_NAME>.tar.gz
+ */
+
+const { execFileSync } = require("child_process");
+const fs = require("fs");
+const path = require("path");
+
+const root = path.join(__dirname, "..");
+const dist = path.join(root, "dist");
+const outDir = path.join(root, "artifacts");
+
+if (!fs.existsSync(dist)) {
+  console.error("dist/ missing. Run npm run build first.");
+  process.exit(1);
+}
+
+const pkg = JSON.parse(fs.readFileSync(path.join(dist, "package.json"), "utf8"));
+const buildInfoPath = path.join(dist, "build-info.json");
+const buildInfo = fs.existsSync(buildInfoPath)
+  ? JSON.parse(fs.readFileSync(buildInfoPath, "utf8"))
+  : {};
+
+const artifactBase =
+  process.env.ARTIFACT_NAME || buildInfo.artifactName || `node-app-${pkg.version}`;
+const tarballName = artifactBase.endsWith(".tar.gz")
+  ? artifactBase
+  : `${artifactBase}.tar.gz`;
+const tarballPath = path.join(outDir, tarballName);
+const rootTarball = path.join(root, "node-app.tar.gz");
+
+fs.mkdirSync(outDir, { recursive: true });
+
+console.log("Packaging application artifact…");
+console.log(`  source:   dist/`);
+console.log(`  tarball:  ${tarballName}`);
+
+execFileSync("tar", ["-czf", tarballPath, "dist"], { cwd: root, stdio: "inherit" });
+fs.copyFileSync(tarballPath, rootTarball);
+
+const sizeKb = Math.round(fs.statSync(tarballPath).size / 1024);
+console.log(`  size:     ${sizeKb} KB`);
+console.log(`  wrote:    artifacts/${tarballName}`);
+console.log(`  wrote:    node-app.tar.gz (stable learning name)`);
+console.log("Package complete.");

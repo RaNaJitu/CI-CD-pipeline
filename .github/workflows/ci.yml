@@ -96,11 +96,18 @@ jobs:
           ARTIFACT_NAME: ${{ steps.version.outputs.artifact_name }}
         run: npm run build
 
-      - name: Upload versioned build artifact
+      - name: Package application
+        env:
+          ARTIFACT_NAME: ${{ steps.version.outputs.artifact_name }}
+        run: npm run package
+
+      - name: Upload application artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.version.outputs.artifact_name }}
-          path: dist/
+          path: |
+            artifacts/${{ steps.version.outputs.artifact_name }}.tar.gz
+            node-app.tar.gz
           retention-days: 14
 
   deploy-dev:
@@ -128,15 +135,22 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Download versioned build artifact
+      - name: Download application artifact
         uses: actions/download-artifact@v4
         with:
           name: ${{ needs.ci.outputs.artifact_name }}
-          path: dist/
+          path: artifacts/
 
-      - name: Show promoted artifact
+      - name: Extract application artifact
         run: |
-          echo "Promoting same CI artifact: ${{ needs.ci.outputs.artifact_name }}"
+          set -euo pipefail
+          TARBALL="artifacts/${{ needs.ci.outputs.artifact_name }}.tar.gz"
+          echo "Promoting SAME CI artifact (build once, deploy many):"
+          echo "  ${TARBALL}"
+          ls -lh artifacts/
+          rm -rf dist
+          tar -xzf "${TARBALL}"
+          test -f dist/build-info.json
           cat dist/build-info.json
 
       - name: Install production dependencies

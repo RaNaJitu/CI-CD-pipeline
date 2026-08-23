@@ -44,18 +44,39 @@ npm run audit
 ```
 Source
   → Quality (audit, lint, tests, coverage, Sonar, gate)
-  → Version + Build → dist/
-  → Store versioned artifact
-  → Promote SAME artifact → DEV
+  → Build → dist/
+  → Package → node-app.tar.gz (versioned)
+  → Upload artifact (GitHub Actions)
+  → Promote SAME .tar.gz → DEV
   → Health check
 ```
 
-## Phase 3 — Artifact
+**Build once, deploy many times** — DEV/STAGE/PROD should all get the same tarball, not three separate builds.
 
-Artifact name: `app-<version>-<git-sha>-<run-number>`
+## Phase 3 — Build and store the artifact
 
-Stored in Actions; DEV downloads that exact name (no rebuild).
+```bash
+npm run build      # → dist/ (src, public, package.json, lock, build-info)
+npm run package    # → artifacts/<name>.tar.gz + node-app.tar.gz
+```
 
+What gets packaged:
+
+```text
+dist/
+├── src/
+├── public/
+├── package.json
+├── package-lock.json
+└── build-info.json
+        ↓
+   node-app.tar.gz   ← the artifact
+```
+
+CI uploads that `.tar.gz`. DEV downloads and extracts the **same file** (no rebuild).
+
+Versioned name: `app-<version>-<git-sha>-<run-number>.tar.gz`  
+Stable learning name: `node-app.tar.gz`
 ## Phase 4 — DEV
 
 Create GitHub Environment **`development`**:

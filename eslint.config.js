@@ -9,6 +9,7 @@ module.exports = defineConfig([
     "dist/**",
     "reports/**",
     "promotions/**",
+    "artifacts/**",
   ]),
   {
     files: ["src/**/*.js", "scripts/**/*.js", "test/**/*.js", "eslint.config.js", "jest.config.js"],

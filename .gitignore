@@ -3,6 +3,8 @@ coverage/
 dist/
 reports/
 promotions/
+artifacts/
+*.tar.gz
 .DS_Store
 .env
 *.log
