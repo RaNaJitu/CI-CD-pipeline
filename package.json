@@ -5,11 +5,30 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "NODE_ENV=development node server.js"
+    "dev": "NODE_ENV=development node server.js",
+    "test": "node ./node_modules/jest/bin/jest.js",
+    "lint": "node ./node_modules/eslint/bin/eslint.js ."
   },
-  "keywords": ["cicd", "devops", "learning", "node"],
+  "keywords": [
+    "cicd",
+    "devops",
+    "learning",
+    "node"
+  ],
   "license": "MIT",
   "dependencies": {
     "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.9.0",
+    "globals": "^17.11.0",
+    "jest": "^29.7.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "collectCoverageFrom": [
+      "calculator.js"
+    ]
   }
 }
