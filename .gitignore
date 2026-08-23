@@ -2,6 +2,7 @@ node_modules/
 coverage/
 dist/
 reports/
+promotions/
 .DS_Store
 .env
 *.log

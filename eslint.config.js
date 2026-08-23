@@ -3,9 +3,15 @@ const globals = require("globals");
 const { defineConfig, globalIgnores } = require("eslint/config");
 
 module.exports = defineConfig([
-  globalIgnores(["node_modules/**", "coverage/**", "dist/**"]),
+  globalIgnores([
+    "node_modules/**",
+    "coverage/**",
+    "dist/**",
+    "reports/**",
+    "promotions/**",
+  ]),
   {
-    files: ["**/*.js"],
+    files: ["src/**/*.js", "scripts/**/*.js", "test/**/*.js", "eslint.config.js", "jest.config.js"],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: "commonjs",
@@ -18,7 +24,7 @@ module.exports = defineConfig([
     },
   },
   {
-    files: ["**/*.test.js"],
+    files: ["test/**/*.js"],
     languageOptions: {
       globals: {
         ...globals.node,

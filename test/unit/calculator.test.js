@@ -1,4 +1,4 @@
-const { add } = require("./calculator");
+const { add } = require("../../src/lib/calculator");
 
 describe("calculator", () => {
   describe("add", () => {

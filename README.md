@@ -2,6 +2,27 @@
 
 Interactive learning UI that explains how software moves through **DEV → Stage → Prod**.
 
+## Project layout
+
+```text
+.
+├── .github/                 # Actions + Dependabot
+├── src/                     # Application source
+│   ├── config/              # Env + build metadata
+│   ├── data/                # Learning content
+│   ├── lib/                 # Domain helpers (calculator)
+│   ├── routes/              # HTTP API
+│   ├── app.js               # Express app factory
+│   └── server.js            # Process entrypoint
+├── public/                  # Static UI
+├── test/unit/               # Jest unit tests
+├── scripts/                 # Build / deploy / health tools
+├── dist/                    # Packaged artifact (gitignored)
+├── jest.config.js
+├── eslint.config.js
+└── sonar-project.properties
+```
+
 ## Run locally
 
 ```bash
@@ -11,58 +32,45 @@ npm start
 
 Open [http://localhost:3000](http://localhost:3000).
 
+```bash
+npm run lint
+npm test -- --coverage
+npm run build
+npm run audit
+```
+
 ## Pipeline
 
 ```
 Source
-  → npm ci
-  → Dependency audit (+ Dependabot / Dependency Review on PRs)
-  → ESLint
-  → Unit tests + Coverage
-  → SonarCloud + Quality Gate
-  → Build + Artifact
-  → Deploy DEV (main only)
+  → Quality (audit, lint, tests, coverage, Sonar, gate)
+  → Version + Build → dist/
+  → Store versioned artifact
+  → Promote SAME artifact → DEV
+  → Health check
 ```
 
-Parallel: **CodeQL** workflow (SAST) → results in **Security → Code scanning**.
+## Phase 3 — Artifact
 
-## Phase 2 — Quality
+Artifact name: `app-<version>-<git-sha>-<run-number>`
 
-| Check | How |
-|-------|-----|
-| ESLint | `npm run lint` |
-| Unit tests + coverage | `npm test -- --coverage` |
-| Dependency audit | `npm run audit` (also in CI; report artifact `npm-audit-report`) |
-| Dependabot | `.github/dependabot.yml` (weekly npm + Actions updates) |
-| Dependency Review | PR-only step in CI (fails on high severity) |
-| CodeQL | `.github/workflows/codeql.yml` |
-| SonarCloud + Quality Gate | Needs repo secret `SONAR_TOKEN` |
+Stored in Actions; DEV downloads that exact name (no rebuild).
 
-Artifacts from CI: `coverage-report`, `npm-audit-report`, `app-build`.
+## Phase 4 — DEV
 
-## DEV environment
+Create GitHub Environment **`development`**:
 
-DEV deploy runs only on pushes to `main`, after CI succeeds. It uses the GitHub Environment named **`development`**.
+| Type | Names |
+|------|--------|
+| Variables | `NODE_ENV`, `API_URL` |
+| Secrets | `DATABASE_URL`, `DEPLOY_KEY`, `API_SECRET` |
 
-1. Repo → **Settings** → **Environments** → **New environment** → `development`
-2. **Variables:** `NODE_ENV=development`, `API_URL=https://dev-api.example.com`
-3. **Secrets:** `DATABASE_URL`, `DEPLOY_KEY`, `API_SECRET`
-4. Repo secret: `SONAR_TOKEN`
-
-Never put secret values in YAML — use `${{ secrets.* }}` and `${{ vars.* }}`.
-
-## Switch environment labels (local)
-
-```bash
-APP_ENV=development npm start   # DEV (default)
-APP_ENV=staging npm start       # STAGE
-APP_ENV=production npm start    # PROD
-```
+Repo secret: `SONAR_TOKEN`
 
 ## API
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /api/health` | Health + current env |
-| `GET /api/pipeline` | Full pipeline + CI/CD concepts |
+| `GET /api/health` | Health + env + build info |
+| `GET /api/pipeline` | CI/CD learning content |
 | `GET /api/env/:name` | Detail for `dev`, `stage`, or `prod` |

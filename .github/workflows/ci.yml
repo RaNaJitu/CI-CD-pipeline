@@ -16,6 +16,10 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+    outputs:
+      artifact_name: ${{ steps.version.outputs.artifact_name }}
+      app_version: ${{ steps.version.outputs.app_version }}
+      git_sha: ${{ steps.version.outputs.git_sha }}
 
     steps:
       - name: Checkout source code
@@ -73,14 +77,31 @@ jobs:
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
+      - name: Resolve artifact version
+        id: version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          SHA="${GITHUB_SHA:0:7}"
+          NAME="app-${VERSION}-${SHA}-${GITHUB_RUN_NUMBER}"
+          echo "app_version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "git_sha=${SHA}" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=${NAME}" >> "$GITHUB_OUTPUT"
+          echo "Resolved artifact: ${NAME}"
+
       - name: Build application
+        env:
+          APP_VERSION: ${{ steps.version.outputs.app_version }}
+          GIT_SHA: ${{ steps.version.outputs.git_sha }}
+          BUILD_NUMBER: ${{ github.run_number }}
+          ARTIFACT_NAME: ${{ steps.version.outputs.artifact_name }}
         run: npm run build
 
-      - name: Upload build artifact
+      - name: Upload versioned build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-build
+          name: ${{ steps.version.outputs.artifact_name }}
           path: dist/
+          retention-days: 14
 
   deploy-dev:
     name: Deploy to DEV
@@ -95,16 +116,39 @@ jobs:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
       API_SECRET: ${{ secrets.API_SECRET }}
+      PORT: 3010
 
     steps:
       - name: Checkout source code
         uses: actions/checkout@v6
 
-      - name: Download build artifact
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Download versioned build artifact
         uses: actions/download-artifact@v4
         with:
-          name: app-build
+          name: ${{ needs.ci.outputs.artifact_name }}
           path: dist/
 
-      - name: Deploy to development
+      - name: Show promoted artifact
+        run: |
+          echo "Promoting same CI artifact: ${{ needs.ci.outputs.artifact_name }}"
+          cat dist/build-info.json
+
+      - name: Install production dependencies
+        working-directory: dist
+        run: npm ci --omit=dev
+
+      - name: Deploy to development + health check
         run: node scripts/deploy-dev.js
+
+      - name: Upload DEV promotion record
+        uses: actions/upload-artifact@v4
+        with:
+          name: promotion-dev-${{ needs.ci.outputs.artifact_name }}
+          path: promotions/dev.json
+          retention-days: 14

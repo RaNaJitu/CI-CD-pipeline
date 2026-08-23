@@ -1,11 +1,20 @@
+/**
+ * Package runtime app into dist/ for CI artifact promotion.
+ *
+ * Layout:
+ *   dist/
+ *     src/          ← application code
+ *     public/       ← static UI
+ *     package.json
+ *     package-lock.json
+ *     build-info.json
+ */
+
 const fs = require("fs");
 const path = require("path");
 
 const root = path.join(__dirname, "..");
 const dist = path.join(root, "dist");
-
-const runtimeFiles = ["server.js", "calculator.js", "package.json", "package-lock.json"];
-const runtimeDirs = ["public"];
 
 function rmDir(dir) {
   fs.rmSync(dir, { recursive: true, force: true });
@@ -29,15 +38,31 @@ function copyDir(src, dest) {
   }
 }
 
-function writeProductionPackage() {
-  const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+function resolveBuildInfo(pkg) {
+  const version = process.env.APP_VERSION || pkg.version;
+  const gitSha = process.env.GIT_SHA || "local";
+  const buildNumber = process.env.BUILD_NUMBER || "0";
+  const artifactName =
+    process.env.ARTIFACT_NAME || `app-${version}-${gitSha}-${buildNumber}`;
+
+  return {
+    name: pkg.name,
+    version,
+    gitSha,
+    buildNumber: String(buildNumber),
+    artifactName,
+    builtAt: new Date().toISOString(),
+  };
+}
+
+function writeProductionPackage(pkg, buildInfo) {
   const productionPkg = {
     name: pkg.name,
-    version: pkg.version,
+    version: buildInfo.version,
     description: pkg.description,
-    main: "server.js",
+    main: "src/server.js",
     scripts: {
-      start: "node server.js",
+      start: "node src/server.js",
     },
     license: pkg.license,
     dependencies: pkg.dependencies || {},
@@ -48,27 +73,36 @@ function writeProductionPackage() {
   );
 }
 
+function writeBuildInfo(buildInfo) {
+  fs.writeFileSync(
+    path.join(dist, "build-info.json"),
+    `${JSON.stringify(buildInfo, null, 2)}\n`
+  );
+}
+
+const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+const buildInfo = resolveBuildInfo(pkg);
+
 console.log("Building application → dist/");
+console.log(`  version:  ${buildInfo.version}`);
+console.log(`  gitSha:   ${buildInfo.gitSha}`);
+console.log(`  build #:  ${buildInfo.buildNumber}`);
+console.log(`  artifact: ${buildInfo.artifactName}`);
+
 rmDir(dist);
 fs.mkdirSync(dist, { recursive: true });
 
-for (const file of runtimeFiles) {
-  if (file === "package.json") continue;
-  const src = path.join(root, file);
-  if (fs.existsSync(src)) {
-    copyFile(src, path.join(dist, file));
-    console.log(`  + ${file}`);
-  }
-}
+copyDir(path.join(root, "src"), path.join(dist, "src"));
+console.log("  + src/");
 
-for (const dir of runtimeDirs) {
-  const src = path.join(root, dir);
-  if (fs.existsSync(src)) {
-    copyDir(src, path.join(dist, dir));
-    console.log(`  + ${dir}/`);
-  }
-}
+copyDir(path.join(root, "public"), path.join(dist, "public"));
+console.log("  + public/");
 
-writeProductionPackage();
+copyFile(path.join(root, "package-lock.json"), path.join(dist, "package-lock.json"));
+console.log("  + package-lock.json");
+
+writeProductionPackage(pkg, buildInfo);
+writeBuildInfo(buildInfo);
 console.log("  + package.json (production)");
+console.log("  + build-info.json");
 console.log("Build complete.");
