@@ -14,35 +14,42 @@ Open [http://localhost:3000](http://localhost:3000).
 ## Pipeline
 
 ```
-Source → Lint → Test → Coverage → Sonar → Quality Gate → Build → Artifact → Deploy DEV
+Source
+  → npm ci
+  → Dependency audit (+ Dependabot / Dependency Review on PRs)
+  → ESLint
+  → Unit tests + Coverage
+  → SonarCloud + Quality Gate
+  → Build + Artifact
+  → Deploy DEV (main only)
 ```
 
-DEV deploy runs only on pushes to `main`, and only after CI succeeds. It uses the GitHub Environment named **`development`**.
+Parallel: **CodeQL** workflow (SAST) → results in **Security → Code scanning**.
 
-## Step 17 — Create the `development` environment
+## Phase 2 — Quality
 
-In GitHub (do this in the UI — do not put secret values in YAML):
+| Check | How |
+|-------|-----|
+| ESLint | `npm run lint` |
+| Unit tests + coverage | `npm test -- --coverage` |
+| Dependency audit | `npm run audit` (also in CI; report artifact `npm-audit-report`) |
+| Dependabot | `.github/dependabot.yml` (weekly npm + Actions updates) |
+| Dependency Review | PR-only step in CI (fails on high severity) |
+| CodeQL | `.github/workflows/codeql.yml` |
+| SonarCloud + Quality Gate | Needs repo secret `SONAR_TOKEN` |
 
-1. Open the repo → **Settings** → **Environments** → **New environment**
-2. Name it exactly: `development`
-3. Add **Environment variables** (non-secret):
+Artifacts from CI: `coverage-report`, `npm-audit-report`, `app-build`.
 
-| Name | Example value |
-|------|----------------|
-| `NODE_ENV` | `development` |
-| `API_URL` | `https://dev-api.example.com` |
+## DEV environment
 
-4. Add **Environment secrets** (sensitive):
+DEV deploy runs only on pushes to `main`, after CI succeeds. It uses the GitHub Environment named **`development`**.
 
-| Name | Purpose |
-|------|---------|
-| `DATABASE_URL` | DEV database connection |
-| `DEPLOY_KEY` | Deploy credential / SSH key |
-| `API_SECRET` | API secret for DEV |
+1. Repo → **Settings** → **Environments** → **New environment** → `development`
+2. **Variables:** `NODE_ENV=development`, `API_URL=https://dev-api.example.com`
+3. **Secrets:** `DATABASE_URL`, `DEPLOY_KEY`, `API_SECRET`
+4. Repo secret: `SONAR_TOKEN`
 
-Also keep repo secret `SONAR_TOKEN` for the quality job (repo-level is fine).
-
-Repo secrets / env secrets are referenced in the workflow as `${{ secrets.NAME }}` and `${{ vars.NAME }}` — never as plain text.
+Never put secret values in YAML — use `${{ secrets.* }}` and `${{ vars.* }}`.
 
 ## Switch environment labels (local)
 
