@@ -3,7 +3,7 @@ const globals = require("globals");
 const { defineConfig, globalIgnores } = require("eslint/config");
 
 module.exports = defineConfig([
-  globalIgnores(["node_modules/**", "coverage/**"]),
+  globalIgnores(["node_modules/**", "coverage/**", "dist/**"]),
   {
     files: ["**/*.js"],
     languageOptions: {

@@ -6,6 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "NODE_ENV=development node server.js",
+    "build": "node scripts/build.js",
+    "start:dist": "node dist/server.js",
     "test": "node ./node_modules/jest/bin/jest.js",
     "lint": "node ./node_modules/eslint/bin/eslint.js ."
   },
@@ -27,6 +29,9 @@
   },
   "jest": {
     "testEnvironment": "node",
+    "modulePathIgnorePatterns": [
+      "<rootDir>/dist/"
+    ],
     "collectCoverageFrom": [
       "calculator.js"
     ]
