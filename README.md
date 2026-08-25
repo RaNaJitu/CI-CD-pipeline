@@ -81,9 +81,31 @@ Create GitHub Environment **`development`**:
 | Type | Names |
 |------|--------|
 | Variables | `NODE_ENV`, `API_URL` |
-| Secrets | `DATABASE_URL`, `DEPLOY_KEY`, `API_SECRET` |
+| Secrets | `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY` |
 
-Repo secret: `SONAR_TOKEN`
+**Repository secrets** (Settings → Secrets → Actions): `SONAR_TOKEN`
+
+### EC2_SSH_KEY format (important)
+
+`error in libcrypto` means the private key file is invalid.
+
+1. Use the **private** key, not `.pub`
+2. Full multiline content, including headers:
+
+```text
+-----BEGIN OPENSSH PRIVATE KEY-----
+...
+-----END OPENSSH PRIVATE KEY-----
+```
+
+3. Matching public key must be on the EC2 instance in `~/.ssh/authorized_keys`
+4. If you have a PuTTY `.ppk`, convert it first:
+
+```bash
+puttygen key.ppk -O private-openssh -o ec2_key.pem
+```
+
+Then paste `ec2_key.pem` into the `EC2_SSH_KEY` environment secret.
 
 ### Dependency scanning (current)
 

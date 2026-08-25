@@ -151,16 +151,38 @@ jobs:
       - name: Configure SSH
         env:
           EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
         run: |
           set -euo pipefail
 
+          if [ -z "${EC2_SSH_KEY:-}" ]; then
+            echo "::error::EC2_SSH_KEY is empty. Add the PRIVATE key to Environment development secrets."
+            exit 1
+          fi
+
+          if [ -z "${EC2_HOST:-}" ]; then
+            echo "::error::EC2_HOST is empty."
+            exit 1
+          fi
+
           mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
 
-          echo "$EC2_SSH_KEY" > ~/.ssh/ec2_key
+          # Write private key safely (handles real newlines, literal \n, and CRLF)
+          python3 -c 'import os, pathlib; raw=os.environ["EC2_SSH_KEY"].replace("\\n","\n").replace("\r\n","\n").strip()+"\n"; p=pathlib.Path.home()/".ssh"/"ec2_key"; p.write_text(raw); p.chmod(0o600)'
 
-          chmod 600 ~/.ssh/ec2_key
+          if ! ssh-keygen -y -f "$HOME/.ssh/ec2_key" >/dev/null 2>&1; then
+            echo "::error::EC2_SSH_KEY is not a valid OpenSSH/PEM private key (libcrypto error)."
+            echo "Checklist:"
+            echo "  1) Use PRIVATE key (BEGIN ... PRIVATE KEY), not .pub"
+            echo "  2) Do not use PuTTY .ppk — convert with puttygen first"
+            echo "  3) Paste full multiline key into Environment secret EC2_SSH_KEY"
+            echo "  4) Matching public key must be in EC2 ~/.ssh/authorized_keys"
+            exit 1
+          fi
 
-          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
 
       - name: Verify EC2 SSH connection
         run: |
