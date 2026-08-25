@@ -77,7 +77,8 @@ function selectEnv(pipeline, id) {
 
   panel.hidden = false;
   panel.style.animation = "none";
-  void panel.offsetWidth;
+  // Force reflow so the panel-in animation can restart.
+  panel.getBoundingClientRect();
   panel.style.animation = "";
 
   badge.textContent = env.short;
