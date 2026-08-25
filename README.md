@@ -87,25 +87,30 @@ Create GitHub Environment **`development`**:
 
 ### EC2_SSH_KEY format (important)
 
-`error in libcrypto` means the private key file is invalid.
+`error in libcrypto` means the private key secret is invalid/corrupted.
 
-1. Use the **private** key, not `.pub`
-2. Full multiline content, including headers:
+**Recommended: store base64 (single line)**
 
-```text
------BEGIN OPENSSH PRIVATE KEY-----
-...
------END OPENSSH PRIVATE KEY-----
-```
-
-3. Matching public key must be on the EC2 instance in `~/.ssh/authorized_keys`
-4. If you have a PuTTY `.ppk`, convert it first:
+On your Mac, with the EC2 private key file (example `cicd-ec2.pem`):
 
 ```bash
-puttygen key.ppk -O private-openssh -o ec2_key.pem
+# confirm it is a private key
+head -n 1 cicd-ec2.pem
+# should print: -----BEGIN ... PRIVATE KEY-----
+
+# copy base64 to clipboard
+base64 -i cicd-ec2.pem | tr -d '\n' | pbcopy
 ```
 
-Then paste `ec2_key.pem` into the `EC2_SSH_KEY` environment secret.
+Then in GitHub → Environment **development** → secret **EC2_SSH_KEY** → paste that single line → Save.
+
+Also install the matching public key on EC2:
+
+```bash
+ssh-keygen -y -f cicd-ec2.pem >> ~/.ssh/authorized_keys
+```
+
+(run that on the instance, or append the `.pub` content into `authorized_keys`)
 
 ### Dependency scanning (current)
 

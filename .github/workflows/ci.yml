@@ -156,7 +156,7 @@ jobs:
           set -euo pipefail
 
           if [ -z "${EC2_SSH_KEY:-}" ]; then
-            echo "::error::EC2_SSH_KEY is empty. Add the PRIVATE key to Environment development secrets."
+            echo "::error::EC2_SSH_KEY is empty."
             exit 1
           fi
 
@@ -168,19 +168,55 @@ jobs:
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
 
-          # Write private key safely (handles real newlines, literal \n, and CRLF)
-          python3 -c 'import os, pathlib; raw=os.environ["EC2_SSH_KEY"].replace("\\n","\n").replace("\r\n","\n").strip()+"\n"; p=pathlib.Path.home()/".ssh"/"ec2_key"; p.write_text(raw); p.chmod(0o600)'
+          # Prefer base64-encoded private key (recommended for GitHub secrets).
+          # Also accepts raw PEM / OpenSSH private key text.
+          python3 <<'PY'
+          import base64, os, pathlib, sys
+
+          raw = os.environ["EC2_SSH_KEY"].strip()
+          key_path = pathlib.Path.home() / ".ssh" / "ec2_key"
+
+          def looks_like_pem(text: str) -> bool:
+              return "BEGIN" in text and "PRIVATE KEY" in text
+
+          candidates = []
+
+          # 1) raw key (with real newlines or literal \n)
+          candidates.append(raw.replace("\\n", "\n").replace("\r\n", "\n").strip() + "\n")
+
+          # 2) base64 decode (standard recommendation for GitHub Actions)
+          try:
+              decoded = base64.b64decode(raw, validate=False).decode("utf-8", errors="strict")
+              candidates.append(decoded.replace("\r\n", "\n").strip() + "\n")
+          except Exception:
+              pass
+
+          chosen = None
+          for candidate in candidates:
+              if looks_like_pem(candidate):
+                  chosen = candidate
+                  break
+
+          if chosen is None:
+              print("::error::EC2_SSH_KEY did not contain a PRIVATE KEY block.", file=sys.stderr)
+              print("Store base64 of the private key (recommended):", file=sys.stderr)
+              print("  base64 -i your-key.pem | pbcopy   # macOS", file=sys.stderr)
+              sys.exit(1)
+
+          key_path.write_text(chosen)
+          key_path.chmod(0o600)
+          print("Private key file written.")
+          PY
 
           if ! ssh-keygen -y -f "$HOME/.ssh/ec2_key" >/dev/null 2>&1; then
-            echo "::error::EC2_SSH_KEY is not a valid OpenSSH/PEM private key (libcrypto error)."
-            echo "Checklist:"
-            echo "  1) Use PRIVATE key (BEGIN ... PRIVATE KEY), not .pub"
-            echo "  2) Do not use PuTTY .ppk — convert with puttygen first"
-            echo "  3) Paste full multiline key into Environment secret EC2_SSH_KEY"
-            echo "  4) Matching public key must be in EC2 ~/.ssh/authorized_keys"
+            echo "::error::Decoded EC2_SSH_KEY is still not a valid private key."
+            echo "Create secret from:"
+            echo "  base64 -i ~/.ssh/your-ec2-key.pem | pbcopy"
+            echo "Paste that single line into Environment secret EC2_SSH_KEY."
             exit 1
           fi
 
+          echo "SSH private key validated."
           ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
 
