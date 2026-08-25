@@ -70,6 +70,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.organization=jeet
+            -Dsonar.projectKey=ranajitu
 
       - name: Quality Gate
         uses: SonarSource/sonarqube-quality-gate-action@master

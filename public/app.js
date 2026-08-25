@@ -13,11 +13,17 @@ function setLiveEnv(env) {
   wrap.querySelector(".live-dot").style.boxShadow = `0 0 10px ${env.color}`;
 }
 
+function clearChildren(node) {
+  while (node.firstChild) {
+    node.removeChild(node.firstChild);
+  }
+}
+
 function renderTrack(pipeline) {
   const track = document.getElementById("pipeline-track");
-  track.innerHTML = "";
+  clearChildren(track);
 
-  pipeline.forEach((env, index) => {
+  pipeline.forEach((env) => {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "env-card";
@@ -25,18 +31,33 @@ function renderTrack(pipeline) {
     btn.setAttribute("aria-selected", "false");
     btn.dataset.id = env.id;
     btn.style.setProperty("--env-color", env.color);
-    btn.innerHTML = `
-      <span class="env-short">${env.short}</span>
-      <h3>${env.label}</h3>
-      <p>${env.description}</p>
-    `;
+
+    const short = document.createElement("span");
+    short.className = "env-short";
+    short.textContent = env.short;
+
+    const title = document.createElement("h3");
+    title.textContent = env.label;
+
+    const desc = document.createElement("p");
+    desc.textContent = env.description;
+
+    btn.append(short, title, desc);
     btn.addEventListener("click", () => selectEnv(pipeline, env.id));
     track.appendChild(btn);
-
-    if (index === 0) {
-      // default selection handled after loop
-    }
   });
+}
+
+function fillList(listEl, items, ordered) {
+  clearChildren(listEl);
+  items.forEach((text) => {
+    const li = document.createElement("li");
+    li.textContent = text;
+    listEl.appendChild(li);
+  });
+  if (ordered) {
+    listEl.setAttribute("role", "list");
+  }
 }
 
 function selectEnv(pipeline, id) {
@@ -55,7 +76,6 @@ function selectEnv(pipeline, id) {
   const learn = document.getElementById("panel-learn");
 
   panel.hidden = false;
-  // re-trigger animation
   panel.style.animation = "none";
   void panel.offsetWidth;
   panel.style.animation = "";
@@ -66,30 +86,35 @@ function selectEnv(pipeline, id) {
   title.textContent = env.label;
   desc.textContent = env.description;
 
-  steps.innerHTML = env.steps.map((s) => `<li>${s}</li>`).join("");
-  learn.innerHTML = env.learn.map((s) => `<li>${s}</li>`).join("");
+  fillList(steps, env.steps, true);
+  fillList(learn, env.learn, false);
 
   panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
 function renderConcepts(concepts) {
   const grid = document.getElementById("concept-grid");
+  clearChildren(grid);
+
   const items = [
     { title: "CI", body: concepts.ci },
     { title: "CD", body: concepts.cd },
     { title: "DEV → Stage → Prod", body: concepts.flow },
   ];
 
-  grid.innerHTML = items
-    .map(
-      (item) => `
-      <article class="concept-card">
-        <h3>${item.title}</h3>
-        <p>${item.body}</p>
-      </article>
-    `
-    )
-    .join("");
+  items.forEach((item) => {
+    const article = document.createElement("article");
+    article.className = "concept-card";
+
+    const heading = document.createElement("h3");
+    heading.textContent = item.title;
+
+    const body = document.createElement("p");
+    body.textContent = item.body;
+
+    article.append(heading, body);
+    grid.appendChild(article);
+  });
 }
 
 async function init() {
