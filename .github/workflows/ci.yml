@@ -105,64 +105,82 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.version.outputs.artifact_name }}
-          path: |
-            artifacts/${{ steps.version.outputs.artifact_name }}.tar.gz
-            node-app.tar.gz
+          path: artifacts/${{ steps.version.outputs.artifact_name }}.tar.gz
           retention-days: 14
+          if-no-files-found: error
 
   deploy-dev:
-    name: Deploy to DEV
-    needs: ci
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    environment: development
-    env:
-      NODE_ENV: ${{ vars.NODE_ENV }}
-      APP_ENV: development
-      API_URL: ${{ vars.API_URL }}
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
-      API_SECRET: ${{ secrets.API_SECRET }}
-      PORT: 3010
+  name: Deploy to DEV
+  needs: ci
+  if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  runs-on: ubuntu-latest
+  environment: development
 
-    steps:
-      - name: Checkout source code
-        uses: actions/checkout@v6
+  steps:
+    - name: Download application artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ needs.ci.outputs.artifact_name }}
+        path: artifacts
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22
-          cache: npm
+    - name: Verify artifact
+      run: |
+        set -euo pipefail
 
-      - name: Download application artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ needs.ci.outputs.artifact_name }}
-          path: artifacts/
+        TARBALL="artifacts/${{ needs.ci.outputs.artifact_name }}.tar.gz"
 
-      - name: Extract application artifact
-        run: |
-          set -euo pipefail
-          TARBALL="artifacts/${{ needs.ci.outputs.artifact_name }}.tar.gz"
-          echo "Promoting SAME CI artifact (build once, deploy many):"
-          echo "  ${TARBALL}"
-          ls -lh artifacts/
-          rm -rf dist
-          tar -xzf "${TARBALL}"
-          test -f dist/build-info.json
-          cat dist/build-info.json
+        echo "Artifact:"
+        ls -lh "$TARBALL"
 
-      - name: Install production dependencies
-        working-directory: dist
-        run: npm ci --omit=dev
+        echo "Artifact contents:"
+        tar -tzf "$TARBALL" | head -30
 
-      - name: Deploy to development + health check
-        run: node scripts/deploy-dev.js
+    - name: Configure SSH
+      env:
+        EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+      run: |
+        set -euo pipefail
 
-      - name: Upload DEV promotion record
-        uses: actions/upload-artifact@v4
-        with:
-          name: promotion-dev-${{ needs.ci.outputs.artifact_name }}
-          path: promotions/dev.json
-          retention-days: 14
+        mkdir -p ~/.ssh
+
+        echo "$EC2_SSH_KEY" > ~/.ssh/ec2_key
+
+        chmod 600 ~/.ssh/ec2_key
+
+        ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+
+    - name: Verify EC2 SSH connection
+      run: |
+        ssh \
+          -i ~/.ssh/ec2_key \
+          -o IdentitiesOnly=yes \
+          "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+          "echo 'SSH connection successful'; hostname; whoami"
+
+    - name: Upload artifact to EC2
+      run: |
+        set -euo pipefail
+
+        scp \
+          -i ~/.ssh/ec2_key \
+          -o IdentitiesOnly=yes \
+          "artifacts/${{ needs.ci.outputs.artifact_name }}.tar.gz" \
+          "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/tmp/cicd-learning/"
+
+    - name: Deploy artifact on EC2
+      run: |
+        set -euo pipefail
+
+        ssh \
+          -i ~/.ssh/ec2_key \
+          -o IdentitiesOnly=yes \
+          "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+          "bash /opt/cicd-learning/deploy.sh '${{ needs.ci.outputs.artifact_name }}'"
+
+    - name: Verify deployed application
+      run: |
+        ssh \
+          -i ~/.ssh/ec2_key \
+          -o IdentitiesOnly=yes \
+          "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+          "curl --fail http://127.0.0.1:3010/api/health"

@@ -56,8 +56,8 @@ Source
 ## Phase 3 — Build and store the artifact
 
 ```bash
-npm run build      # → dist/ (src, public, package.json, lock, build-info)
-npm run package    # → artifacts/<name>.tar.gz + node-app.tar.gz
+npm run build      # → dist/
+npm run package    # → artifacts/app-<version>-<sha>-<run>.tar.gz  (ONE canonical artifact)
 ```
 
 What gets packaged:
@@ -70,13 +70,10 @@ dist/
 ├── package-lock.json
 └── build-info.json
         ↓
-   node-app.tar.gz   ← the artifact
+artifacts/app-1.0.0-a82f91c-152.tar.gz   ← the only artifact
 ```
 
 CI uploads that `.tar.gz`. DEV downloads and extracts the **same file** (no rebuild).
-
-Versioned name: `app-<version>-<git-sha>-<run-number>.tar.gz`  
-Stable learning name: `node-app.tar.gz`
 ## Phase 4 — DEV
 
 Create GitHub Environment **`development`**:
@@ -87,6 +84,16 @@ Create GitHub Environment **`development`**:
 | Secrets | `DATABASE_URL`, `DEPLOY_KEY`, `API_SECRET` |
 
 Repo secret: `SONAR_TOKEN`
+
+### Dependency scanning (current)
+
+- **Hard gate in CI:** `npm audit --audit-level=high`
+- **Ongoing updates:** `.github/dependabot.yml`
+
+GitHub **Dependency Review** was removed from the workflow because this repo does not have Dependency graph enabled yet. To add it later:
+
+1. [Enable Dependency graph](https://github.com/RaNaJitu/CI-CD-pipeline/settings/security_analysis)
+2. Add a PR-only step using `actions/dependency-review-action@v5`
 
 ## API
 

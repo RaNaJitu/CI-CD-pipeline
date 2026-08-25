@@ -1,10 +1,10 @@
 /**
- * Create a deployable tarball from dist/.
+ * Create ONE canonical deployable tarball from dist/.
  *
- * Principle: build once → package once → promote the same .tar.gz to DEV/STAGE/PROD.
+ * Build once → package once → promote the same .tar.gz to DEV / STAGE / PROD.
  *
- * Output (default): artifacts/node-app.tar.gz
- * Or versioned:     artifacts/<ARTIFACT_NAME>.tar.gz
+ * Output: artifacts/<ARTIFACT_NAME>.tar.gz
+ * Example: artifacts/app-1.0.0-a82f91c-152.tar.gz
  */
 
 const { execFileSync } = require("child_process");
@@ -27,24 +27,32 @@ const buildInfo = fs.existsSync(buildInfoPath)
   : {};
 
 const artifactBase =
-  process.env.ARTIFACT_NAME || buildInfo.artifactName || `node-app-${pkg.version}`;
+  process.env.ARTIFACT_NAME || buildInfo.artifactName || `app-${pkg.version}-local-0`;
 const tarballName = artifactBase.endsWith(".tar.gz")
   ? artifactBase
   : `${artifactBase}.tar.gz`;
 const tarballPath = path.join(outDir, tarballName);
-const rootTarball = path.join(root, "node-app.tar.gz");
 
 fs.mkdirSync(outDir, { recursive: true });
 
-console.log("Packaging application artifact…");
+// Remove older local tarballs so only the current canonical artifact remains.
+for (const file of fs.readdirSync(outDir)) {
+  if (file.endsWith(".tar.gz")) {
+    fs.unlinkSync(path.join(outDir, file));
+  }
+}
+const legacyRootTarball = path.join(root, "node-app.tar.gz");
+if (fs.existsSync(legacyRootTarball)) {
+  fs.unlinkSync(legacyRootTarball);
+}
+
+console.log("Packaging canonical application artifact…");
 console.log(`  source:   dist/`);
 console.log(`  tarball:  ${tarballName}`);
 
 execFileSync("tar", ["-czf", tarballPath, "dist"], { cwd: root, stdio: "inherit" });
-fs.copyFileSync(tarballPath, rootTarball);
 
 const sizeKb = Math.round(fs.statSync(tarballPath).size / 1024);
 console.log(`  size:     ${sizeKb} KB`);
 console.log(`  wrote:    artifacts/${tarballName}`);
-console.log(`  wrote:    node-app.tar.gz (stable learning name)`);
-console.log("Package complete.");
+console.log("Package complete (single artifact).");
