@@ -4,6 +4,10 @@ module.exports = {
   roots: ["<rootDir>/test"],
   testMatch: ["**/*.test.js"],
   modulePathIgnorePatterns: ["<rootDir>/dist/"],
-  collectCoverageFrom: ["src/lib/**/*.js", "src/config/**/*.js", "src/routes/**/*.js"],
+  collectCoverageFrom: [
+    "src/**/*.js",
+    "!src/server.js",
+  ],
   coverageDirectory: "coverage",
+  coverageReporters: ["text", "lcov", "clover"],
 };
