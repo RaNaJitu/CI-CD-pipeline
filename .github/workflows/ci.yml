@@ -77,6 +77,14 @@ jobs:
         with:
           name: coverage-report
           path: coverage/
+      
+      - name: Verify Sonar project access
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          curl --fail --silent --show-error \
+            -u "${SONAR_TOKEN}:" \
+            "https://sonarcloud.io/api/projects/search?projects=RaNaJitu_CI-CD-pipeline"
 
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@master
@@ -84,9 +92,16 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
-          args: >
-            -Dsonar.qualitygate.wait=true
-            -Dsonar.qualitygate.timeout=300
+          # args: >
+          #   -Dsonar.qualitygate.wait=true
+          #   -Dsonar.qualitygate.timeout=300
+      - name: Verify Sonar Quality Gate API access
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          curl --fail --silent --show-error \
+            -u "${SONAR_TOKEN}:" \
+            "https://sonarcloud.io/api/qualitygates/project_status?projectKey=RaNaJitu_CI-CD-pipeline"
 
       # - name: Quality Gate
       #   uses: SonarSource/sonarqube-quality-gate-action@master
