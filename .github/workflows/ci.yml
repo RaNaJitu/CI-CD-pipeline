@@ -83,8 +83,6 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
           args: >
-            -Dsonar.organization=ranajitu
-            -Dsonar.projectKey=RaNaJitu_CI-CD-pipeline
             -Dsonar.qualitygate.wait=true
             -Dsonar.qualitygate.timeout=300
 
