@@ -2,6 +2,18 @@
 
 Interactive learning UI that explains how software moves through **DEV → Stage → Prod**.
 
+## Roadmap status
+
+```text
+PHASE 1  Done — CI basics
+PHASE 2  Done — Quality (Sonar, gate, CodeQL, audit, Dependabot)
+PHASE 3  Done — Versioned artifact + promote same tarball
+PHASE 4  Done — DEV EC2 deploy + health
+PHASE 5  Done (in repo) — STAGE EC2 deploy + smoke/integration
+PHASE 6  Pending — PROD
+PHASE 7  Pending — Pro CI/CD (OIDC, concurrency, etc.)
+```
+
 ## Project layout
 
 ```text
@@ -45,13 +57,23 @@ npm run audit
 Source
   → Quality (audit, lint, tests, coverage, Sonar, gate)
   → Build → dist/
-  → Package → node-app.tar.gz (versioned)
+  → Package → versioned .tar.gz
   → Upload artifact (GitHub Actions)
-  → Promote SAME .tar.gz → DEV
-  → Health check
+  → Promote SAME .tar.gz → DEV (push develop) or STAGE (push main)
+  → Health / smoke checks
 ```
 
 **Build once, deploy many times** — DEV/STAGE/PROD should all get the same tarball, not three separate builds.
+
+### Branch → environment
+
+| Branch event | CI | Deploy |
+|--------------|----|--------|
+| PR → `develop` or `main` | Quality & Build | none |
+| Push → `develop` | Quality & Build | **DEV** (`development`) |
+| Push → `main` | Quality & Build | **STAGE** (`staging`) |
+
+PRs into `main` must come from `develop` or `hotfix/*` (workflow **Allowed source branch** — add it as a required check on the `main` ruleset).
 
 ## Phase 3 — Build and store the artifact
 
@@ -73,7 +95,8 @@ dist/
 artifacts/app-1.0.0-a82f91c-152.tar.gz   ← the only artifact
 ```
 
-CI uploads that `.tar.gz`. DEV downloads and extracts the **same file** (no rebuild).
+CI uploads that `.tar.gz`. DEV/STAGE download and extract the **same file** (no rebuild).
+
 ## Phase 4 — DEV
 
 Create GitHub Environment **`development`**:
@@ -84,6 +107,8 @@ Create GitHub Environment **`development`**:
 | Secrets | `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY` |
 
 **Repository secrets** (Settings → Secrets → Actions): `SONAR_TOKEN`
+
+Deploy runs on **push to `develop`** only.
 
 ### EC2_SSH_KEY format (important)
 
@@ -111,6 +136,28 @@ ssh-keygen -y -f cicd-ec2.pem >> ~/.ssh/authorized_keys
 ```
 
 (run that on the instance, or append the `.pub` content into `authorized_keys`)
+
+## Phase 5 — STAGE
+
+Create GitHub Environment **`staging`** (second EC2, same layout as DEV):
+
+| Type | Names |
+|------|--------|
+| Variables | `NODE_ENV`, `API_URL` |
+| Secrets | `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY` |
+
+Use the **STAGE** host/key values (not the DEV ones). Prefer base64 for `EC2_SSH_KEY` (same as Phase 4).
+
+On the STAGE instance, mirror DEV:
+
+- `/opt/cicd-learning/deploy.sh`
+- `/tmp/cicd-learning/` for uploaded tarballs
+- App listens on `http://127.0.0.1:3010`
+
+Deploy runs on **push to `main`** only. After deploy, CI runs:
+
+1. **Smoke:** `GET /api/health` (must include the promoted artifact name)
+2. **Integration:** `GET /api/pipeline` must succeed
 
 ### Dependency scanning (current)
 
