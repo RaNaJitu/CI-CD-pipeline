@@ -78,6 +78,9 @@ jobs:
           name: coverage-report
           path: coverage/
 
+      # Do NOT use sonar.qualitygate.wait=true here.
+      # Analysis tokens / scoped org tokens can upload but fail QG wait with
+      # "Not authorized or project not found". Use a User token + gate action.
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@master
         env:
@@ -85,8 +88,14 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
           args: >
-            -Dsonar.qualitygate.wait=true
-            -Dsonar.qualitygate.timeout=300
+            -Dsonar.organization=ranajitu
+            -Dsonar.projectKey=RaNaJitu_CI-CD-pipeline
+
+      - name: SonarCloud Quality Gate
+        uses: SonarSource/sonarqube-quality-gate-action@master
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
       - name: Resolve artifact version
         id: version
