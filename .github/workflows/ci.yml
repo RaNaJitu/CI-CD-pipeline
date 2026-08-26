@@ -21,8 +21,7 @@ jobs:
 
     permissions:
       contents: read
-      pull-requests: write
-      checks: write
+      pull-requests: read
     outputs:
       artifact_name: ${{ steps.version.outputs.artifact_name }}
       app_version: ${{ steps.version.outputs.app_version }}
@@ -35,12 +34,15 @@ jobs:
           fetch-depth: 0
 
       - name: Verify SONAR_TOKEN is configured
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
-          if [ -z "${{ secrets.SONAR_TOKEN }}" ]; then
-            echo "::error::SONAR_TOKEN is missing. Add it under Repo Settings → Secrets and variables → Actions → Repository secrets (not only Environment secrets)."
+          if [ -z "$SONAR_TOKEN" ]; then
+            echo "::error::SONAR_TOKEN is missing."
             exit 1
           fi
-          echo "SONAR_TOKEN is present (value hidden)."
+
+          echo "SONAR_TOKEN is present."
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
