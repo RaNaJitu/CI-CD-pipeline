@@ -100,10 +100,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        with:
-          args: >
-            -Dsonar.qualitygate.wait=true
-            -Dsonar.qualitygate.timeout=300
+        # with:
+        #   args: >
+        #     -Dsonar.qualitygate.wait=true
+        #     -Dsonar.qualitygate.timeout=300
       - name: Verify Sonar Quality Gate API access
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -111,7 +111,40 @@ jobs:
           curl --fail --silent --show-error \
             -u "${SONAR_TOKEN}:" \
             "https://sonarcloud.io/api/qualitygates/project_status?projectKey=RaNaJitu_CI-CD-pipeline"
+      
+      - name: Check SonarQube Quality Gate
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          set -euo pipefail
 
+          echo "Waiting for SonarQube analysis..."
+
+          for i in {1..30}; do
+            RESPONSE=$(curl --silent --show-error \
+              -u "${SONAR_TOKEN}:" \
+              "https://sonarcloud.io/api/qualitygates/project_status?projectKey=RaNaJitu_CI-CD-pipeline")
+
+            STATUS=$(echo "$RESPONSE" | jq -r '.projectStatus.status // empty')
+
+            echo "Attempt $i: Quality Gate = ${STATUS:-PROCESSING}"
+
+            if [ "$STATUS" = "OK" ]; then
+              echo "Quality Gate passed"
+              exit 0
+            fi
+
+            if [ "$STATUS" = "ERROR" ]; then
+              echo "Quality Gate failed"
+              echo "$RESPONSE"
+              exit 1
+            fi
+
+            sleep 5
+          done
+
+          echo "Timed out waiting for Quality Gate"
+          exit 1
       # - name: Quality Gate
       #   uses: SonarSource/sonarqube-quality-gate-action@master
       #   timeout-minutes: 5
