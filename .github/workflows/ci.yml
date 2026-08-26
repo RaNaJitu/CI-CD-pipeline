@@ -78,6 +78,15 @@ jobs:
           name: coverage-report
           path: coverage/
       
+      - name: Debug Sonar API access
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          curl --silent --show-error \
+            -u "${SONAR_TOKEN}:" \
+            -w "\nHTTP STATUS: %{http_code}\n" \
+            "https://sonarcloud.io/api/qualitygates/project_status?projectKey=RaNaJitu_CI-CD-pipeline"
+
       - name: Verify Sonar project access
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
