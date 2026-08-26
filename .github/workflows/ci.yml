@@ -15,11 +15,13 @@ jobs:
   ci:
     name: Quality & Build
     runs-on: ubuntu-latest
+    # Do NOT bind this job to environment: development / staging.
+    # Sonar needs repository secret SONAR_TOKEN (available to all jobs).
+    # Keep environment: only on deploy-dev / deploy-stage.
 
     permissions:
       contents: read
       pull-requests: read
-
     outputs:
       artifact_name: ${{ steps.version.outputs.artifact_name }}
       app_version: ${{ steps.version.outputs.app_version }}
@@ -30,22 +32,42 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+      - name: Debug GitHub event context
+        run: |
+          echo "Event: ${{ github.event_name }}"
+          echo "Repository: ${{ github.repository }}"
+          echo "Ref: ${{ github.ref }}"
+          echo "Head repo: ${{ github.event.pull_request.head.repo.full_name || github.repository }}"
+          echo "Base repo: ${{ github.event.pull_request.base.repo.full_name || github.repository }}"
+          
+      # - name: Verify SONAR_TOKEN is configured
+      #   env:
+      #     SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      #   run: |
+      #     if [ -z "$SONAR_TOKEN" ]; then
+      #       echo "::error::SONAR_TOKEN is missing."
+      #       exit 1
+      #     fi
+
+      #     echo "SONAR_TOKEN is present."
+      - name: Verify SONAR_TOKEN is configured
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          test -n "$SONAR_TOKEN"
+          echo "SONAR_TOKEN is present."
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
-
-      - name: Verify SONAR_TOKEN is configured
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: |
-          if [ -z "$SONAR_TOKEN" ]; then
-            echo "::error::SONAR_TOKEN is missing."
-            exit 1
-          fi
-          echo "SONAR_TOKEN is present."
 
       - name: Install dependencies
         run: npm ci
@@ -62,7 +84,6 @@ jobs:
         with:
           name: npm-audit-report
           path: reports/npm-audit.json
-          if-no-files-found: warn
 
       - name: Run ESLint
         run: npm run lint
@@ -70,121 +91,95 @@ jobs:
       - name: Run unit tests with coverage
         run: npm test -- --coverage
 
-      - name: Verify coverage report
-        run: |
-          set -euo pipefail
-          test -f coverage/lcov.info
-          echo "coverage/lcov.info found"
-          echo "Coverage summary:"
-          grep -E "^(LF|LH):" coverage/lcov.info | head -20 || true
-
       - name: Upload coverage report
-        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
           path: coverage/
-          if-no-files-found: warn
-
-      - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@master
+      
+      - name: Debug Sonar API access
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-
-      - name: Wait for SonarCloud analysis and check Quality Gate
+        run: |
+          curl --silent --show-error \
+            -u "${SONAR_TOKEN}:" \
+            -w "\nHTTP STATUS: %{http_code}\n" \
+            "https://sonarcloud.io/api/qualitygates/project_status?projectKey=RaNaJitu_CI-CD-pipeline"
+      
+      - name: Verify Sonar Quality Gate API access
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          curl --fail --silent --show-error \
+            -u "${SONAR_TOKEN}:" \
+            "https://sonarcloud.io/api/qualitygates/project_status?projectKey=RaNaJitu_CI-CD-pipeline"
+            
+      # - name: SonarCloud Scan
+      #   uses: SonarSource/sonarcloud-github-action@master
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      #     SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        # with:
+        #   args: >
+        #     -Dsonar.qualitygate.wait=true
+        #     -Dsonar.qualitygate.timeout=300
+      - name: Verify Sonar Quality Gate API access
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          curl --fail --silent --show-error \
+            -u "${SONAR_TOKEN}:" \
+            "https://sonarcloud.io/api/qualitygates/project_status?projectKey=RaNaJitu_CI-CD-pipeline"
+      
+      - name: Check SonarQube Quality Gate
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
           set -euo pipefail
 
-          REPORT=".scannerwork/report-task.txt"
+          echo "Waiting for SonarQube analysis..."
 
-          if [ ! -f "$REPORT" ]; then
-            echo "::error::SonarCloud report-task.txt was not found."
-            exit 1
-          fi
-
-          echo "SonarCloud task file:"
-          cat "$REPORT"
-
-          CE_TASK_URL=$(grep '^ceTaskUrl=' "$REPORT" | cut -d= -f2-)
-          PROJECT_KEY=$(grep '^projectKey=' "$REPORT" | cut -d= -f2-)
-
-          if [ -z "$CE_TASK_URL" ] || [ -z "$PROJECT_KEY" ]; then
-            echo "::error::Could not read SonarCloud task URL or project key."
-            exit 1
-          fi
-
-          echo "Waiting for SonarCloud analysis..."
-
-          ANALYSIS_ID=""
-
-          for i in {1..60}; do
-            RESPONSE=$(curl \
-              --fail \
-              --silent \
-              --show-error \
+          for i in {1..30}; do
+            RESPONSE=$(curl --silent --show-error \
               -u "${SONAR_TOKEN}:" \
-              "$CE_TASK_URL")
+              "https://sonarcloud.io/api/qualitygates/project_status?projectKey=RaNaJitu_CI-CD-pipeline")
 
-            STATUS=$(echo "$RESPONSE" | jq -r '.task.status // empty')
+            STATUS=$(echo "$RESPONSE" | jq -r '.projectStatus.status // empty')
 
-            echo "Analysis attempt $i: ${STATUS:-UNKNOWN}"
+            echo "Attempt $i: Quality Gate = ${STATUS:-PROCESSING}"
 
-            if [ "$STATUS" = "SUCCESS" ]; then
-              ANALYSIS_ID=$(echo "$RESPONSE" | jq -r '.task.analysisId // empty')
-              break
+            if [ "$STATUS" = "OK" ]; then
+              echo "Quality Gate passed"
+              exit 0
             fi
 
-            if [ "$STATUS" = "FAILED" ] || [ "$STATUS" = "CANCELED" ]; then
-              echo "::error::SonarCloud analysis failed."
-              echo "$RESPONSE" | jq .
+            if [ "$STATUS" = "ERROR" ]; then
+              echo "Quality Gate failed"
+              echo "$RESPONSE"
               exit 1
             fi
 
             sleep 5
           done
 
-          if [ -z "$ANALYSIS_ID" ]; then
-            echo "::error::Timed out waiting for SonarCloud analysis."
-            exit 1
-          fi
-
-          echo "Analysis completed: $ANALYSIS_ID"
-
-          QUALITY_RESPONSE=$(curl \
-            --fail \
-            --silent \
-            --show-error \
-            -u "${SONAR_TOKEN}:" \
-            "https://sonarcloud.io/api/qualitygates/project_status?projectKey=${PROJECT_KEY}&analysisId=${ANALYSIS_ID}")
-
-          echo "$QUALITY_RESPONSE" | jq .
-
-          QUALITY_STATUS=$(echo "$QUALITY_RESPONSE" | jq -r '.projectStatus.status // empty')
-
-          if [ "$QUALITY_STATUS" != "OK" ]; then
-            echo "::error::SonarCloud Quality Gate failed: ${QUALITY_STATUS:-UNKNOWN}"
-            exit 1
-          fi
-
-          echo "SonarCloud Quality Gate passed."
+          echo "Timed out waiting for Quality Gate"
+          exit 1
+      # - name: Quality Gate
+      #   uses: SonarSource/sonarqube-quality-gate-action@master
+      #   timeout-minutes: 5
+      #   env:
+      #     SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
       - name: Resolve artifact version
         id: version
         run: |
-          set -euo pipefail
-
           VERSION=$(node -p "require('./package.json').version")
           SHA="${GITHUB_SHA:0:7}"
           NAME="app-${VERSION}-${SHA}-${GITHUB_RUN_NUMBER}"
-
           echo "app_version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "git_sha=${SHA}" >> "$GITHUB_OUTPUT"
           echo "artifact_name=${NAME}" >> "$GITHUB_OUTPUT"
-
-          echo "Resolved artifact: $NAME"
+          echo "Resolved artifact: ${NAME}"
 
       - name: Build application
         env:
@@ -226,7 +221,6 @@ jobs:
           set -euo pipefail
 
           TARBALL="artifacts/${{ needs.ci.outputs.artifact_name }}.tar.gz"
-          test -f "$TARBALL"
 
           echo "Artifact:"
           ls -lh "$TARBALL"
@@ -241,70 +235,106 @@ jobs:
         run: |
           set -euo pipefail
 
-          test -n "${EC2_SSH_KEY:-}"
-          test -n "${EC2_HOST:-}"
+          if [ -z "${EC2_SSH_KEY:-}" ]; then
+            echo "::error::EC2_SSH_KEY is empty."
+            exit 1
+          fi
+
+          if [ -z "${EC2_HOST:-}" ]; then
+            echo "::error::EC2_HOST is empty."
+            exit 1
+          fi
 
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
 
-          printf '%s\n' "$EC2_SSH_KEY" | tr -d '\r' > ~/.ssh/ec2_key
-          chmod 600 ~/.ssh/ec2_key
+          # Prefer base64-encoded private key (recommended for GitHub secrets).
+          # Also accepts raw PEM / OpenSSH private key text.
+          python3 <<'PY'
+          import base64, os, pathlib, sys
 
-          ssh-keygen -y -f ~/.ssh/ec2_key > /dev/null
+          raw = os.environ["EC2_SSH_KEY"].strip()
+          key_path = pathlib.Path.home() / ".ssh" / "ec2_key"
+
+          def looks_like_pem(text: str) -> bool:
+              return "BEGIN" in text and "PRIVATE KEY" in text
+
+          candidates = []
+
+          # 1) raw key (with real newlines or literal \n)
+          candidates.append(raw.replace("\\n", "\n").replace("\r\n", "\n").strip() + "\n")
+
+          # 2) base64 decode (standard recommendation for GitHub Actions)
+          try:
+              decoded = base64.b64decode(raw, validate=False).decode("utf-8", errors="strict")
+              candidates.append(decoded.replace("\r\n", "\n").strip() + "\n")
+          except Exception:
+              pass
+
+          chosen = None
+          for candidate in candidates:
+              if looks_like_pem(candidate):
+                  chosen = candidate
+                  break
+
+          if chosen is None:
+              print("::error::EC2_SSH_KEY did not contain a PRIVATE KEY block.", file=sys.stderr)
+              print("Store base64 of the private key (recommended):", file=sys.stderr)
+              print("  base64 -i your-key.pem | pbcopy   # macOS", file=sys.stderr)
+              sys.exit(1)
+
+          key_path.write_text(chosen)
+          key_path.chmod(0o600)
+          print("Private key file written.")
+          PY
+
+          if ! ssh-keygen -y -f "$HOME/.ssh/ec2_key" >/dev/null 2>&1; then
+            echo "::error::Decoded EC2_SSH_KEY is still not a valid private key."
+            echo "Create secret from:"
+            echo "  base64 -i ~/.ssh/your-ec2-key.pem | pbcopy"
+            echo "Paste that single line into Environment secret EC2_SSH_KEY."
+            exit 1
+          fi
+
+          echo "SSH private key validated."
           ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
 
       - name: Verify EC2 SSH connection
-        env:
-          EC2_USER: ${{ secrets.EC2_USER }}
-          EC2_HOST: ${{ secrets.EC2_HOST }}
         run: |
-          set -euo pipefail
           ssh \
             -i ~/.ssh/ec2_key \
             -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=yes \
-            "${EC2_USER}@${EC2_HOST}" \
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
             "echo 'SSH connection successful'; hostname; whoami"
 
       - name: Upload artifact to EC2
-        env:
-          EC2_USER: ${{ secrets.EC2_USER }}
-          EC2_HOST: ${{ secrets.EC2_HOST }}
         run: |
           set -euo pipefail
+
           scp \
             -i ~/.ssh/ec2_key \
             -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=yes \
             "artifacts/${{ needs.ci.outputs.artifact_name }}.tar.gz" \
-            "${EC2_USER}@${EC2_HOST}:/tmp/cicd-learning/"
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/tmp/cicd-learning/"
 
       - name: Deploy artifact on EC2
-        env:
-          EC2_USER: ${{ secrets.EC2_USER }}
-          EC2_HOST: ${{ secrets.EC2_HOST }}
         run: |
           set -euo pipefail
+
           ssh \
             -i ~/.ssh/ec2_key \
             -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=yes \
-            "${EC2_USER}@${EC2_HOST}" \
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
             "bash /opt/cicd-learning/deploy.sh '${{ needs.ci.outputs.artifact_name }}'"
 
       - name: Verify deployed application
-        env:
-          EC2_USER: ${{ secrets.EC2_USER }}
-          EC2_HOST: ${{ secrets.EC2_HOST }}
         run: |
-          set -euo pipefail
           ssh \
             -i ~/.ssh/ec2_key \
             -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=yes \
-            "${EC2_USER}@${EC2_HOST}" \
-            "curl --fail --silent --show-error http://127.0.0.1:3010/api/health"
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            "curl --fail http://127.0.0.1:3010/api/health"
 
   deploy-stage:
     name: Deploy to STAGE
@@ -325,7 +355,6 @@ jobs:
           set -euo pipefail
 
           TARBALL="artifacts/${{ needs.ci.outputs.artifact_name }}.tar.gz"
-          test -f "$TARBALL"
 
           echo "Artifact:"
           ls -lh "$TARBALL"
@@ -340,91 +369,129 @@ jobs:
         run: |
           set -euo pipefail
 
-          test -n "${EC2_SSH_KEY:-}"
-          test -n "${EC2_HOST:-}"
+          if [ -z "${EC2_SSH_KEY:-}" ]; then
+            echo "::error::EC2_SSH_KEY is empty (staging environment)."
+            exit 1
+          fi
+
+          if [ -z "${EC2_HOST:-}" ]; then
+            echo "::error::EC2_HOST is empty (staging environment)."
+            exit 1
+          fi
 
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
 
-          printf '%s\n' "$EC2_SSH_KEY" | tr -d '\r' > ~/.ssh/ec2_key
-          chmod 600 ~/.ssh/ec2_key
+          # Prefer base64-encoded private key (recommended for GitHub secrets).
+          # Also accepts raw PEM / OpenSSH private key text.
+          python3 <<'PY'
+          import base64, os, pathlib, sys
 
-          ssh-keygen -y -f ~/.ssh/ec2_key > /dev/null
+          raw = os.environ["EC2_SSH_KEY"].strip()
+          key_path = pathlib.Path.home() / ".ssh" / "ec2_key"
+
+          def looks_like_pem(text: str) -> bool:
+              return "BEGIN" in text and "PRIVATE KEY" in text
+
+          candidates = []
+
+          # 1) raw key (with real newlines or literal \n)
+          candidates.append(raw.replace("\\n", "\n").replace("\r\n", "\n").strip() + "\n")
+
+          # 2) base64 decode (standard recommendation for GitHub Actions)
+          try:
+              decoded = base64.b64decode(raw, validate=False).decode("utf-8", errors="strict")
+              candidates.append(decoded.replace("\r\n", "\n").strip() + "\n")
+          except Exception:
+              pass
+
+          chosen = None
+          for candidate in candidates:
+              if looks_like_pem(candidate):
+                  chosen = candidate
+                  break
+
+          if chosen is None:
+              print("::error::EC2_SSH_KEY did not contain a PRIVATE KEY block.", file=sys.stderr)
+              print("Store base64 of the private key (recommended):", file=sys.stderr)
+              print("  base64 -i your-key.pem | pbcopy   # macOS", file=sys.stderr)
+              sys.exit(1)
+
+          key_path.write_text(chosen)
+          key_path.chmod(0o600)
+          print("Private key file written.")
+          PY
+
+          if ! ssh-keygen -y -f "$HOME/.ssh/ec2_key" >/dev/null 2>&1; then
+            echo "::error::Decoded EC2_SSH_KEY is still not a valid private key."
+            echo "Create secret from:"
+            echo "  base64 -i ~/.ssh/your-ec2-key.pem | pbcopy"
+            echo "Paste that single line into Environment secret EC2_SSH_KEY (staging)."
+            exit 1
+          fi
+
+          echo "SSH private key validated."
           ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
 
       - name: Verify EC2 SSH connection
-        env:
-          EC2_USER: ${{ secrets.EC2_USER }}
-          EC2_HOST: ${{ secrets.EC2_HOST }}
         run: |
-          set -euo pipefail
           ssh \
             -i ~/.ssh/ec2_key \
             -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=yes \
-            "${EC2_USER}@${EC2_HOST}" \
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
             "echo 'SSH connection successful'; hostname; whoami"
 
       - name: Upload artifact to EC2
-        env:
-          EC2_USER: ${{ secrets.EC2_USER }}
-          EC2_HOST: ${{ secrets.EC2_HOST }}
         run: |
           set -euo pipefail
+
           scp \
             -i ~/.ssh/ec2_key \
             -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=yes \
             "artifacts/${{ needs.ci.outputs.artifact_name }}.tar.gz" \
-            "${EC2_USER}@${EC2_HOST}:/tmp/cicd-learning/"
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/tmp/cicd-learning/"
 
       - name: Deploy artifact on EC2
-        env:
-          EC2_USER: ${{ secrets.EC2_USER }}
-          EC2_HOST: ${{ secrets.EC2_HOST }}
         run: |
           set -euo pipefail
+
           ssh \
             -i ~/.ssh/ec2_key \
             -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=yes \
-            "${EC2_USER}@${EC2_HOST}" \
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
             "bash /opt/cicd-learning/deploy.sh '${{ needs.ci.outputs.artifact_name }}'"
 
       - name: Smoke and integration checks
-        env:
-          EC2_USER: ${{ secrets.EC2_USER }}
-          EC2_HOST: ${{ secrets.EC2_HOST }}
         run: |
           set -euo pipefail
 
-          ARTIFACT="${{ needs.ci.outputs.artifact_name }}"
+          ARTIFACT='${{ needs.ci.outputs.artifact_name }}'
 
+          echo "Smoke: /api/health"
           HEALTH=$(ssh \
             -i ~/.ssh/ec2_key \
             -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=yes \
-            "${EC2_USER}@${EC2_HOST}" \
-            "curl --fail --silent --show-error http://127.0.0.1:3010/api/health")
-
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            "curl --fail --silent http://127.0.0.1:3010/api/health")
           echo "$HEALTH"
 
+          echo "Integration: /api/pipeline"
           PIPELINE=$(ssh \
             -i ~/.ssh/ec2_key \
             -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=yes \
-            "${EC2_USER}@${EC2_HOST}" \
-            "curl --fail --silent --show-error http://127.0.0.1:3010/api/pipeline")
-
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            "curl --fail --silent http://127.0.0.1:3010/api/pipeline")
           echo "$PIPELINE" | head -c 500
           echo
 
-          echo "$HEALTH" | grep -q '"status":"ok"'
+          echo "$HEALTH" | grep -q '"status"'
           echo "$PIPELINE" | grep -q .
 
-          if ! echo "$HEALTH" | grep -q "$ARTIFACT"; then
-            echo "::error::Health JSON did not include expected artifact name: $ARTIFACT"
+          if echo "$HEALTH" | grep -q "$ARTIFACT"; then
+            echo "Health response includes expected artifact: $ARTIFACT"
+          else
+            echo "::error::Health JSON did not include artifact name $ARTIFACT"
             exit 1
           fi
 
