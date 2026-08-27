@@ -6,7 +6,7 @@ Interactive learning UI that explains how software moves through **DEV → Stage
 
 ```text
 PHASE 1  Done — CI basics
-PHASE 2  Done — Quality (Sonar, gate, CodeQL, audit, Dependabot)
+PHASE 2  Done — Quality (CodeQL, audit, Dependabot; Sonar optional / paused)
 PHASE 3  Done — Versioned artifact + promote same tarball
 PHASE 4  Done — DEV EC2 deploy + health
 PHASE 5  Done (in repo) — STAGE EC2 deploy + smoke/integration
@@ -32,7 +32,7 @@ PHASE 7  Pending — Pro CI/CD (OIDC, concurrency, etc.)
 ├── dist/                    # Packaged artifact (gitignored)
 ├── jest.config.js
 ├── eslint.config.js
-└── sonar-project.properties
+└── sonar-project.properties # Kept for optional SonarQube Cloud later
 ```
 
 ## Run locally
@@ -55,7 +55,7 @@ npm run audit
 
 ```
 Source
-  → Quality (audit, lint, tests, coverage, Sonar, gate)
+  → Quality (audit, lint, tests, coverage)
   → Build → dist/
   → Package → versioned .tar.gz
   → Upload artifact (GitHub Actions)
@@ -64,6 +64,8 @@ Source
 ```
 
 **Build once, deploy many times** — DEV/STAGE/PROD should all get the same tarball, not three separate builds.
+
+> **SonarQube Cloud:** not required in CI right now. `sonar-project.properties` remains if you re-enable a scan later with a valid User `SONAR_TOKEN`.
 
 ### Branch → environment
 
@@ -106,9 +108,9 @@ Create GitHub Environment **`development`**:
 | Variables | `NODE_ENV`, `API_URL` |
 | Secrets | `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY` |
 
-**Repository secrets** (Settings → Secrets → Actions): `SONAR_TOKEN`
-
 Deploy runs on **push to `develop`** only.
+
+CodeQL and Dependabot still run separately. `SONAR_TOKEN` is not required for Quality & Build while Sonar is paused.
 
 ### EC2_SSH_KEY format (important)
 

@@ -15,13 +15,13 @@ jobs:
   ci:
     name: Quality & Build
     runs-on: ubuntu-latest
-    # Do NOT bind this job to environment: development / staging.
-    # Sonar needs repository secret SONAR_TOKEN (available to all jobs).
-    # Keep environment: only on deploy-dev / deploy-stage.
+    # No environment on this job — deploy jobs use development / staging.
+    # SonarQube Cloud is omitted for now (optional later). Quality = audit + lint + tests.
 
     permissions:
       contents: read
-      pull-requests: read
+      pull-requests: write
+      checks: write
     outputs:
       artifact_name: ${{ steps.version.outputs.artifact_name }}
       app_version: ${{ steps.version.outputs.app_version }}
@@ -32,36 +32,6 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - name: Debug GitHub event context
-        run: |
-          echo "Event: ${{ github.event_name }}"
-          echo "Repository: ${{ github.repository }}"
-          echo "Ref: ${{ github.ref }}"
-          echo "Head repo: ${{ github.event.pull_request.head.repo.full_name || github.repository }}"
-          echo "Base repo: ${{ github.event.pull_request.base.repo.full_name || github.repository }}"
-          
-      # - name: Verify SONAR_TOKEN is configured
-      #   env:
-      #     SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      #   run: |
-      #     if [ -z "$SONAR_TOKEN" ]; then
-      #       echo "::error::SONAR_TOKEN is missing."
-      #       exit 1
-      #     fi
-
-      #     echo "SONAR_TOKEN is present."
-      - name: Verify SONAR_TOKEN is configured
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: |
-          test -n "$SONAR_TOKEN"
-          echo "SONAR_TOKEN is present."
-
-      - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@master
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -96,79 +66,6 @@ jobs:
         with:
           name: coverage-report
           path: coverage/
-      
-      - name: Debug Sonar API access
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: |
-          curl --silent --show-error \
-            -u "${SONAR_TOKEN}:" \
-            -w "\nHTTP STATUS: %{http_code}\n" \
-            "https://sonarcloud.io/api/qualitygates/project_status?projectKey=RaNaJitu_CI-CD-pipeline"
-      
-      - name: Verify Sonar Quality Gate API access
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: |
-          curl --fail --silent --show-error \
-            -u "${SONAR_TOKEN}:" \
-            "https://sonarcloud.io/api/qualitygates/project_status?projectKey=RaNaJitu_CI-CD-pipeline"
-            
-      # - name: SonarCloud Scan
-      #   uses: SonarSource/sonarcloud-github-action@master
-      #   env:
-      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      #     SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        # with:
-        #   args: >
-        #     -Dsonar.qualitygate.wait=true
-        #     -Dsonar.qualitygate.timeout=300
-      - name: Verify Sonar Quality Gate API access
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: |
-          curl --fail --silent --show-error \
-            -u "${SONAR_TOKEN}:" \
-            "https://sonarcloud.io/api/qualitygates/project_status?projectKey=RaNaJitu_CI-CD-pipeline"
-      
-      - name: Check SonarQube Quality Gate
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          echo "Waiting for SonarQube analysis..."
-
-          for i in {1..30}; do
-            RESPONSE=$(curl --silent --show-error \
-              -u "${SONAR_TOKEN}:" \
-              "https://sonarcloud.io/api/qualitygates/project_status?projectKey=RaNaJitu_CI-CD-pipeline")
-
-            STATUS=$(echo "$RESPONSE" | jq -r '.projectStatus.status // empty')
-
-            echo "Attempt $i: Quality Gate = ${STATUS:-PROCESSING}"
-
-            if [ "$STATUS" = "OK" ]; then
-              echo "Quality Gate passed"
-              exit 0
-            fi
-
-            if [ "$STATUS" = "ERROR" ]; then
-              echo "Quality Gate failed"
-              echo "$RESPONSE"
-              exit 1
-            fi
-
-            sleep 5
-          done
-
-          echo "Timed out waiting for Quality Gate"
-          exit 1
-      # - name: Quality Gate
-      #   uses: SonarSource/sonarqube-quality-gate-action@master
-      #   timeout-minutes: 5
-      #   env:
-      #     SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
       - name: Resolve artifact version
         id: version
@@ -302,11 +199,41 @@ jobs:
 
       - name: Verify EC2 SSH connection
         run: |
+          set -euo pipefail
+
+          echo "=== Deploy preflight (development) ==="
+          echo "Event: ${{ github.event_name }}"
+          echo "Ref: ${{ github.ref }}"
+          echo "Artifact: ${{ needs.ci.outputs.artifact_name }}"
+          echo "EC2_USER set: ${{ secrets.EC2_USER != '' }}"
+          echo "EC2_HOST set: ${{ secrets.EC2_HOST != '' }}"
+          # Host value is masked in logs if stored as a secret — still useful to confirm SSH target.
+
           ssh \
             -i ~/.ssh/ec2_key \
             -o IdentitiesOnly=yes \
             "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
-            "echo 'SSH connection successful'; hostname; whoami"
+            "bash -s" <<'REMOTE'
+          set -euo pipefail
+          echo "SSH connection successful"
+          echo "hostname=$(hostname)"
+          echo "whoami=$(whoami)"
+          echo "public_ip_guess=$(curl -sS --max-time 2 https://checkip.amazonaws.com || echo n/a)"
+          echo "--- /opt/cicd-learning ---"
+          ls -la /opt/cicd-learning || true
+          echo "--- /tmp/cicd-learning ---"
+          ls -la /tmp/cicd-learning || true
+          echo "--- shared/.env ---"
+          if [ -f /opt/cicd-learning/shared/.env ]; then
+            echo "shared/.env exists"
+          else
+            echo "::warning::/opt/cicd-learning/shared/.env is MISSING (deploy.sh will fail linking .env)"
+          fi
+          echo "--- pm2 ---"
+          pm2 status || true
+          echo "--- port 3010 ---"
+          ss -lntp | grep 3010 || echo "nothing listening on 3010"
+          REMOTE
 
       - name: Upload artifact to EC2
         run: |
@@ -317,6 +244,12 @@ jobs:
             -o IdentitiesOnly=yes \
             "artifacts/${{ needs.ci.outputs.artifact_name }}.tar.gz" \
             "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/tmp/cicd-learning/"
+
+          ssh \
+            -i ~/.ssh/ec2_key \
+            -o IdentitiesOnly=yes \
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            "ls -lh '/tmp/cicd-learning/${{ needs.ci.outputs.artifact_name }}.tar.gz'"
 
       - name: Deploy artifact on EC2
         run: |
@@ -330,11 +263,20 @@ jobs:
 
       - name: Verify deployed application
         run: |
+          set -euo pipefail
+
           ssh \
             -i ~/.ssh/ec2_key \
             -o IdentitiesOnly=yes \
             "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
-            "curl --fail http://127.0.0.1:3010/api/health"
+            "bash -s" <<'REMOTE'
+          set -euo pipefail
+          echo "--- after deploy ---"
+          ls -la /opt/cicd-learning/current || true
+          pm2 status || true
+          curl --fail --silent http://127.0.0.1:3010/api/health
+          echo
+          REMOTE
 
   deploy-stage:
     name: Deploy to STAGE
@@ -436,11 +378,40 @@ jobs:
 
       - name: Verify EC2 SSH connection
         run: |
+          set -euo pipefail
+
+          echo "=== Deploy preflight (staging) ==="
+          echo "Event: ${{ github.event_name }}"
+          echo "Ref: ${{ github.ref }}"
+          echo "Artifact: ${{ needs.ci.outputs.artifact_name }}"
+          echo "EC2_USER set: ${{ secrets.EC2_USER != '' }}"
+          echo "EC2_HOST set: ${{ secrets.EC2_HOST != '' }}"
+
           ssh \
             -i ~/.ssh/ec2_key \
             -o IdentitiesOnly=yes \
             "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
-            "echo 'SSH connection successful'; hostname; whoami"
+            "bash -s" <<'REMOTE'
+          set -euo pipefail
+          echo "SSH connection successful"
+          echo "hostname=$(hostname)"
+          echo "whoami=$(whoami)"
+          echo "public_ip_guess=$(curl -sS --max-time 2 https://checkip.amazonaws.com || echo n/a)"
+          echo "--- /opt/cicd-learning ---"
+          ls -la /opt/cicd-learning || true
+          echo "--- /tmp/cicd-learning ---"
+          ls -la /tmp/cicd-learning || true
+          echo "--- shared/.env ---"
+          if [ -f /opt/cicd-learning/shared/.env ]; then
+            echo "shared/.env exists"
+          else
+            echo "::warning::/opt/cicd-learning/shared/.env is MISSING (deploy.sh will fail linking .env)"
+          fi
+          echo "--- pm2 ---"
+          pm2 status || true
+          echo "--- port 3010 ---"
+          ss -lntp | grep 3010 || echo "nothing listening on 3010"
+          REMOTE
 
       - name: Upload artifact to EC2
         run: |
@@ -451,6 +422,12 @@ jobs:
             -o IdentitiesOnly=yes \
             "artifacts/${{ needs.ci.outputs.artifact_name }}.tar.gz" \
             "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/tmp/cicd-learning/"
+
+          ssh \
+            -i ~/.ssh/ec2_key \
+            -o IdentitiesOnly=yes \
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            "ls -lh '/tmp/cicd-learning/${{ needs.ci.outputs.artifact_name }}.tar.gz'"
 
       - name: Deploy artifact on EC2
         run: |
@@ -494,5 +471,12 @@ jobs:
             echo "::error::Health JSON did not include artifact name $ARTIFACT"
             exit 1
           fi
+
+          echo "--- after STAGE deploy ---"
+          ssh \
+            -i ~/.ssh/ec2_key \
+            -o IdentitiesOnly=yes \
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            "ls -la /opt/cicd-learning/current; pm2 status"
 
           echo "STAGE smoke + integration checks passed."
