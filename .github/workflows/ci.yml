@@ -199,11 +199,41 @@ jobs:
 
       - name: Verify EC2 SSH connection
         run: |
+          set -euo pipefail
+
+          echo "=== Deploy preflight (development) ==="
+          echo "Event: ${{ github.event_name }}"
+          echo "Ref: ${{ github.ref }}"
+          echo "Artifact: ${{ needs.ci.outputs.artifact_name }}"
+          echo "EC2_USER set: ${{ secrets.EC2_USER != '' }}"
+          echo "EC2_HOST set: ${{ secrets.EC2_HOST != '' }}"
+          # Host value is masked in logs if stored as a secret — still useful to confirm SSH target.
+
           ssh \
             -i ~/.ssh/ec2_key \
             -o IdentitiesOnly=yes \
             "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
-            "echo 'SSH connection successful'; hostname; whoami"
+            "bash -s" <<'REMOTE'
+          set -euo pipefail
+          echo "SSH connection successful"
+          echo "hostname=$(hostname)"
+          echo "whoami=$(whoami)"
+          echo "public_ip_guess=$(curl -sS --max-time 2 https://checkip.amazonaws.com || echo n/a)"
+          echo "--- /opt/cicd-learning ---"
+          ls -la /opt/cicd-learning || true
+          echo "--- /tmp/cicd-learning ---"
+          ls -la /tmp/cicd-learning || true
+          echo "--- shared/.env ---"
+          if [ -f /opt/cicd-learning/shared/.env ]; then
+            echo "shared/.env exists"
+          else
+            echo "::warning::/opt/cicd-learning/shared/.env is MISSING (deploy.sh will fail linking .env)"
+          fi
+          echo "--- pm2 ---"
+          pm2 status || true
+          echo "--- port 3010 ---"
+          ss -lntp | grep 3010 || echo "nothing listening on 3010"
+          REMOTE
 
       - name: Upload artifact to EC2
         run: |
@@ -214,6 +244,12 @@ jobs:
             -o IdentitiesOnly=yes \
             "artifacts/${{ needs.ci.outputs.artifact_name }}.tar.gz" \
             "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/tmp/cicd-learning/"
+
+          ssh \
+            -i ~/.ssh/ec2_key \
+            -o IdentitiesOnly=yes \
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            "ls -lh '/tmp/cicd-learning/${{ needs.ci.outputs.artifact_name }}.tar.gz'"
 
       - name: Deploy artifact on EC2
         run: |
@@ -227,11 +263,20 @@ jobs:
 
       - name: Verify deployed application
         run: |
+          set -euo pipefail
+
           ssh \
             -i ~/.ssh/ec2_key \
             -o IdentitiesOnly=yes \
             "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
-            "curl --fail http://127.0.0.1:3010/api/health"
+            "bash -s" <<'REMOTE'
+          set -euo pipefail
+          echo "--- after deploy ---"
+          ls -la /opt/cicd-learning/current || true
+          pm2 status || true
+          curl --fail --silent http://127.0.0.1:3010/api/health
+          echo
+          REMOTE
 
   deploy-stage:
     name: Deploy to STAGE
@@ -333,11 +378,40 @@ jobs:
 
       - name: Verify EC2 SSH connection
         run: |
+          set -euo pipefail
+
+          echo "=== Deploy preflight (staging) ==="
+          echo "Event: ${{ github.event_name }}"
+          echo "Ref: ${{ github.ref }}"
+          echo "Artifact: ${{ needs.ci.outputs.artifact_name }}"
+          echo "EC2_USER set: ${{ secrets.EC2_USER != '' }}"
+          echo "EC2_HOST set: ${{ secrets.EC2_HOST != '' }}"
+
           ssh \
             -i ~/.ssh/ec2_key \
             -o IdentitiesOnly=yes \
             "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
-            "echo 'SSH connection successful'; hostname; whoami"
+            "bash -s" <<'REMOTE'
+          set -euo pipefail
+          echo "SSH connection successful"
+          echo "hostname=$(hostname)"
+          echo "whoami=$(whoami)"
+          echo "public_ip_guess=$(curl -sS --max-time 2 https://checkip.amazonaws.com || echo n/a)"
+          echo "--- /opt/cicd-learning ---"
+          ls -la /opt/cicd-learning || true
+          echo "--- /tmp/cicd-learning ---"
+          ls -la /tmp/cicd-learning || true
+          echo "--- shared/.env ---"
+          if [ -f /opt/cicd-learning/shared/.env ]; then
+            echo "shared/.env exists"
+          else
+            echo "::warning::/opt/cicd-learning/shared/.env is MISSING (deploy.sh will fail linking .env)"
+          fi
+          echo "--- pm2 ---"
+          pm2 status || true
+          echo "--- port 3010 ---"
+          ss -lntp | grep 3010 || echo "nothing listening on 3010"
+          REMOTE
 
       - name: Upload artifact to EC2
         run: |
@@ -348,6 +422,12 @@ jobs:
             -o IdentitiesOnly=yes \
             "artifacts/${{ needs.ci.outputs.artifact_name }}.tar.gz" \
             "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/tmp/cicd-learning/"
+
+          ssh \
+            -i ~/.ssh/ec2_key \
+            -o IdentitiesOnly=yes \
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            "ls -lh '/tmp/cicd-learning/${{ needs.ci.outputs.artifact_name }}.tar.gz'"
 
       - name: Deploy artifact on EC2
         run: |
@@ -391,5 +471,12 @@ jobs:
             echo "::error::Health JSON did not include artifact name $ARTIFACT"
             exit 1
           fi
+
+          echo "--- after STAGE deploy ---"
+          ssh \
+            -i ~/.ssh/ec2_key \
+            -o IdentitiesOnly=yes \
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            "ls -la /opt/cicd-learning/current; pm2 status"
 
           echo "STAGE smoke + integration checks passed."
