@@ -90,7 +90,41 @@ jobs:
           args: >
             -Dsonar.organization=ranajitu
             -Dsonar.projectKey=RaNaJitu_CI-CD-pipeline
+      - name: Debug Sonar metadata
+        shell: bash
+        run: |
+          echo "SONAR_HOST_URL=${SONAR_HOST_URL}"
+          echo "report-task.txt:"
+          sed 's/^.*token.*$/[REDACTED]/' .scannerwork/report-task.txt
 
+          echo "Testing Sonar authentication..."
+          curl -sS -o /dev/null -w "HTTP %{http_code}\n" \
+            --user "${SONAR_TOKEN}:" \
+            "${SONAR_HOST_URL}/api/authentication/validate"
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+      
+      
+      - name: Debug Sonar CE task
+        shell: bash
+        run: |
+          CE_TASK_URL=$(sed -n 's/^ceTaskUrl=//p' .scannerwork/report-task.txt)
+
+          echo "CE task URL: ${CE_TASK_URL}"
+
+          curl -sS -D /tmp/headers \
+            --user "${SONAR_TOKEN}:" \
+            "${CE_TASK_URL}" \
+            -o /tmp/task.json
+
+          echo "HTTP response:"
+          head -n 20 /tmp/headers
+
+          echo "Task response:"
+          cat /tmp/task.json
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       - name: SonarCloud Quality Gate
         uses: SonarSource/sonarqube-quality-gate-action@master
         timeout-minutes: 5
