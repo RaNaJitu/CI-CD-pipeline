@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CI/CD Learning — DEV · Stage · Prod</title>
+    <title>PipelineLab — DEV · Stage · Prod</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -13,9 +13,6 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <div class="bg-grid" aria-hidden="true"></div>
-    <div class="bg-glow" aria-hidden="true"></div>
-
     <header class="site-header">
       <div class="brand">
         <span class="brand-mark" aria-hidden="true"></span>
@@ -27,36 +24,36 @@
       </div>
     </header>
 
-    <main>
-      <section class="hero">
-        <div class="hero-copy">
-          <p class="hero-eyebrow">Continuous Integration · Continuous Delivery</p>
-          <h1 class="hero-brand">CI/CD Learning</h1>
-          <p class="hero-lead">
-            Follow how code moves through <strong>DEV</strong>, <strong>Stage</strong>, and
-            <strong>Prod</strong> — and what each environment is for.
-          </p>
-          <div class="hero-cta">
-            <button type="button" class="btn btn-primary" id="btn-tour">
-              Tour the pipeline
-            </button>
-            <button type="button" class="btn btn-ghost" id="btn-concepts">
-              What is CI/CD?
-            </button>
-          </div>
+    <section class="hero" aria-label="Introduction">
+      <div class="hero-media" aria-hidden="true">
+        <img
+          src="https://res.cloudinary.com/dfb4o9hed/image/upload/v1784483835/jitendra_iznwbp.jpg"
+          alt=""
+          width="1600"
+          height="1000"
+          loading="eager"
+          decoding="async"
+        />
+      </div>
+      <div class="hero-veil" aria-hidden="true"></div>
+      <div class="hero-copy">
+        <h1 class="hero-brand">PipelineLab</h1>
+        <p class="hero-lead">
+          Learn how software moves through DEV, Stage, and Prod — and what each
+          environment is for.
+        </p>
+        <div class="hero-cta">
+          <button type="button" class="btn btn-primary" id="btn-tour">
+            Tour the pipeline
+          </button>
+          <button type="button" class="btn btn-ghost" id="btn-concepts">
+            What is CI/CD?
+          </button>
         </div>
-        <div class="hero-portrait">
-          <img
-            src="https://res.cloudinary.com/dfb4o9hed/image/upload/v1784483835/jitendra_iznwbp.jpg"
-            alt="Jitendra — CI/CD Learning"
-            width="420"
-            height="520"
-            loading="eager"
-            decoding="async"
-          />
-        </div>
-      </section>
+      </div>
+    </section>
 
+    <main>
       <section class="pipeline-section" id="pipeline" aria-label="Environment pipeline">
         <div class="section-head">
           <h2>The release path</h2>
@@ -89,7 +86,7 @@
       <section class="concepts" id="concepts">
         <div class="section-head">
           <h2>Core ideas</h2>
-          <p>Short definitions you can use in interviews and day-to-day DevOps work.</p>
+          <p>Short definitions for interviews and day-to-day DevOps work.</p>
         </div>
         <div class="concept-grid" id="concept-grid">
           <!-- filled by JS -->

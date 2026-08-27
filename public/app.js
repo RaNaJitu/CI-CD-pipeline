@@ -9,8 +9,8 @@ function setLiveEnv(env) {
   const wrap = document.getElementById("live-env");
   label.textContent = `Running as ${env.short} · ${env.label}`;
   wrap.style.setProperty("--env-color", env.color);
-  wrap.querySelector(".live-dot").style.background = env.color;
-  wrap.querySelector(".live-dot").style.boxShadow = `0 0 10px ${env.color}`;
+  const dot = wrap.querySelector(".live-dot");
+  dot.style.background = env.color;
 }
 
 function clearChildren(node) {
