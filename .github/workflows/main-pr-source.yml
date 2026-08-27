@@ -1,11 +1,13 @@
 name: Main PR source guard
 
-# Require PRs into main to come from develop or hotfix/* only.
-# Add "Allowed source branch" as a required status check on the main ruleset.
+# Enforce only for PRs into main (develop/hotfix sources).
+# Also runs on PRs into develop so the check reports success there and does
+# not leave a stale failure on the same commit from an earlier main-targeted PR.
+# Require "Allowed source branch" only on the main ruleset (not develop).
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 jobs:
   allow-only-develop-or-hotfix:
@@ -15,12 +17,22 @@ jobs:
       - name: Check PR source branch
         env:
           HEAD_REF: ${{ github.head_ref }}
+          BASE_REF: ${{ github.base_ref }}
         run: |
           set -euo pipefail
-          echo "PR source branch: ${HEAD_REF}"
-          if [ "${HEAD_REF}" = "develop" ] || [[ "${HEAD_REF}" == hotfix/* ]]; then
-            echo "Allowed source branch."
+
+          echo "PR: ${HEAD_REF} → ${BASE_REF}"
+
+          if [ "${BASE_REF}" != "main" ]; then
+            echo "Source guard applies only to PRs into main. Base is '${BASE_REF}' — OK."
             exit 0
           fi
+
+          if [ "${HEAD_REF}" = "develop" ] || [[ "${HEAD_REF}" == hotfix/* ]]; then
+            echo "Allowed source branch for main."
+            exit 0
+          fi
+
           echo "::error::PRs into main must come from 'develop' or 'hotfix/*'. Got: ${HEAD_REF}"
+          echo "Open a PR into develop first, then promote develop → main."
           exit 1
