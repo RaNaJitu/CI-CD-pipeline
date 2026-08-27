@@ -129,7 +129,18 @@ jobs:
       - name: Test SonarCloud Quality Gate API
         shell: bash
         run: |
-          ANALYSIS_ID=$(sed -n 's/^ceTaskUrl=.*id=//p' .scannerwork/report-task.txt)
+          CE_TASK_URL=$(sed -n 's/^ceTaskUrl=//p' .scannerwork/report-task.txt)
+
+          echo "CE task URL: ${CE_TASK_URL}"
+
+          TASK_JSON=$(curl -sS \
+            --user "${SONAR_TOKEN}:" \
+            "${CE_TASK_URL}")
+
+          echo "Task status:"
+          echo "${TASK_JSON}" | jq -r '.task.status'
+
+          ANALYSIS_ID=$(echo "${TASK_JSON}" | jq -r '.task.analysisId')
 
           echo "Analysis ID: ${ANALYSIS_ID}"
           echo "Testing Quality Gate API..."
