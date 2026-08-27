@@ -161,12 +161,34 @@ jobs:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
           
       
-      - name: SonarCloud Quality Gate
-        uses: SonarSource/sonarqube-quality-gate-action@master
-        timeout-minutes: 5
+      - name: SonarQube Quality Gate
+        uses: SonarSource/sonarqube-quality-gate-action@v1.2.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        with:
+          pollingTimeoutSec: 300
 
+      - name: Test Quality Gate demo
+        shell: bash
+        run: |
+          CE_TASK_URL=$(sed -n 's/^ceTaskUrl=//p' .scannerwork/report-task.txt)
+
+          TASK_JSON=$(curl -fsS \
+            --user "${SONAR_TOKEN}:" \
+            "${CE_TASK_URL}")
+
+          ANALYSIS_ID=$(echo "$TASK_JSON" | jq -r '.task.analysisId')
+
+          echo "Analysis ID: $ANALYSIS_ID"
+
+          curl -fsS \
+            --user "${SONAR_TOKEN}:" \
+            "${SONAR_HOST_URL}/api/qualitygates/project_status?analysisId=${ANALYSIS_ID}" \
+            | jq .
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
       - name: Resolve artifact version
         id: version
         run: |
