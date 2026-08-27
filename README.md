@@ -77,6 +77,49 @@ Source
 
 PRs into `main` must come from `develop` or `hotfix/*` (workflow **Allowed source branch** — add it as a required check on the `main` ruleset).
 
+### Debug deploy (DEV / STAGE)
+
+Deploy runs **only on push**, not on PR:
+
+| Job | When |
+|-----|------|
+| Deploy to DEV | push to `develop` |
+| Deploy to STAGE | push to `main` |
+
+**1. Confirm IP ↔ environment secret**
+
+- Instance `43.204.231.45` must match **Environment → development or staging → `EC2_HOST`**
+- Same env must have `EC2_USER`, `EC2_SSH_KEY` (base64)
+- On the box: `/opt/cicd-learning/shared/.env` must exist (deploy.sh links it)
+
+**2. Confirm a deploy job actually ran**
+
+GitHub → Actions → latest run on `develop`/`main` → open **Deploy to DEV** or **Deploy to STAGE**.  
+If the job is **Skipped**, you only ran a PR (no deploy). Merge to the branch first.
+
+**3. Read the new preflight logs**
+
+Deploy jobs print:
+
+- hostname / public IP guess (compare to `43.204.231.45`)
+- `/opt/cicd-learning` and `/tmp/cicd-learning`
+- whether `shared/.env` exists
+- pm2 + port 3010
+- after upload: tarball present under `/tmp/cicd-learning/`
+- after deploy: `current` symlink + health
+
+**4. If SSH works but `/tmp` stays empty**
+
+Upload step failed, or Actions targeted a **different** `EC2_HOST` than the box you SSH into.
+
+**5. Manual dry-run (same as Actions)**
+
+```bash
+# after CI built an artifact, or local: npm run build && ARTIFACT_NAME=app-local npm run package
+scp -i KEY -o IdentitiesOnly=yes artifacts/ARTIFACT.tar.gz ubuntu@HOST:/tmp/cicd-learning/
+ssh -i KEY -o IdentitiesOnly=yes ubuntu@HOST "bash /opt/cicd-learning/deploy.sh ARTIFACT"
+```
+
 ## Phase 3 — Build and store the artifact
 
 ```bash
