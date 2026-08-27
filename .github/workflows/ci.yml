@@ -125,6 +125,31 @@ jobs:
           cat /tmp/task.json
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      
+      - name: Test SonarCloud Quality Gate API
+        shell: bash
+        run: |
+          ANALYSIS_ID=$(sed -n 's/^ceTaskUrl=.*id=//p' .scannerwork/report-task.txt)
+
+          echo "Analysis ID: ${ANALYSIS_ID}"
+          echo "Testing Quality Gate API..."
+
+          curl -sS \
+            -D /tmp/qg-headers \
+            --user "${SONAR_TOKEN}:" \
+            "${SONAR_HOST_URL}/api/qualitygates/project_status?analysisId=${ANALYSIS_ID}" \
+            -o /tmp/qg-response
+
+          echo "HTTP response:"
+          head -n 20 /tmp/qg-headers
+
+          echo "Quality Gate response:"
+          cat /tmp/qg-response
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          
+      
       - name: SonarCloud Quality Gate
         uses: SonarSource/sonarqube-quality-gate-action@master
         timeout-minutes: 5
