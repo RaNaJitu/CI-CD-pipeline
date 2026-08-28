@@ -1,0 +1,115 @@
+name: Rollback PROD
+
+# Manual rollback for production. Requires Environment "production" approval.
+# Install scripts/rollback.sh on the PROD host as /opt/cicd-learning/rollback.sh
+
+on:
+  workflow_dispatch:
+    inputs:
+      artifact_name:
+        description: "Release folder under /opt/cicd-learning/releases (empty = previous)"
+        required: false
+        type: string
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  rollback-prod:
+    name: Rollback PROD
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Configure SSH
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${EC2_SSH_KEY:-}" ] || [ -z "${EC2_HOST:-}" ]; then
+            echo "::error::EC2_SSH_KEY or EC2_HOST missing in production environment."
+            exit 1
+          fi
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          python3 <<'PY'
+          import base64, os, pathlib, sys
+
+          raw = os.environ["EC2_SSH_KEY"].strip()
+          key_path = pathlib.Path.home() / ".ssh" / "ec2_key"
+
+          def looks_like_pem(text: str) -> bool:
+              return "BEGIN" in text and "PRIVATE KEY" in text
+
+          candidates = [
+              raw.replace("\\n", "\n").replace("\r\n", "\n").strip() + "\n",
+          ]
+          try:
+              decoded = base64.b64decode(raw, validate=False).decode("utf-8", errors="strict")
+              candidates.append(decoded.replace("\r\n", "\n").strip() + "\n")
+          except Exception:
+              pass
+
+          chosen = next((c for c in candidates if looks_like_pem(c)), None)
+          if chosen is None:
+              print("::error::EC2_SSH_KEY did not contain a PRIVATE KEY block.", file=sys.stderr)
+              sys.exit(1)
+
+          key_path.write_text(chosen)
+          key_path.chmod(0o600)
+          PY
+
+          if ! ssh-keygen -y -f "$HOME/.ssh/ec2_key" >/dev/null 2>&1; then
+            echo "::error::Invalid EC2_SSH_KEY private key."
+            exit 1
+          fi
+
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: List releases on PROD
+        run: |
+          ssh \
+            -i ~/.ssh/ec2_key \
+            -o IdentitiesOnly=yes \
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            "ls -la /opt/cicd-learning/releases; readlink -f /opt/cicd-learning/current || true; pm2 status || true"
+
+      - name: Run rollback
+        env:
+          TARGET: ${{ inputs.artifact_name }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "${TARGET}" ]; then
+            REMOTE_CMD="bash /opt/cicd-learning/rollback.sh '${TARGET}'"
+          else
+            REMOTE_CMD="bash /opt/cicd-learning/rollback.sh"
+          fi
+
+          ssh \
+            -i ~/.ssh/ec2_key \
+            -o IdentitiesOnly=yes \
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            "$REMOTE_CMD"
+
+      - name: Verify health after rollback
+        run: |
+          set -euo pipefail
+
+          ssh \
+            -i ~/.ssh/ec2_key \
+            -o IdentitiesOnly=yes \
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            "bash -s" <<'REMOTE'
+          set -euo pipefail
+          echo "current=$(readlink -f /opt/cicd-learning/current)"
+          pm2 status || true
+          curl --fail --silent http://127.0.0.1:3010/api/health
+          echo
+          REMOTE
