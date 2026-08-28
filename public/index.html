@@ -14,13 +14,15 @@
   </head>
   <body>
     <header class="site-header">
-      <div class="brand">
-        <span class="brand-mark" aria-hidden="true"></span>
-        <span class="brand-name">PipelineLab</span>
-      </div>
-      <div class="live-env" id="live-env" aria-live="polite">
-        <span class="live-dot"></span>
-        <span id="live-env-label">Loading…</span>
+      <div class="content-rail site-header-inner">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <span class="brand-name">PipelineLab</span>
+        </div>
+        <div class="live-env" id="live-env" aria-live="polite">
+          <span class="live-dot"></span>
+          <span id="live-env-label">Loading…</span>
+        </div>
       </div>
     </header>
 
@@ -36,19 +38,21 @@
         />
       </div>
       <div class="hero-veil" aria-hidden="true"></div>
-      <div class="hero-copy">
-        <h1 class="hero-brand">PipelineLab</h1>
-        <p class="hero-lead">
-          Learn how software moves through DEV, Stage, and Prod — and what each
-          environment is for.
-        </p>
-        <div class="hero-cta">
-          <button type="button" class="btn btn-primary" id="btn-tour">
-            Tour the pipeline
-          </button>
-          <button type="button" class="btn btn-ghost" id="btn-concepts">
-            What is CI/CD?
-          </button>
+      <div class="content-rail hero-rail">
+        <div class="hero-copy">
+          <h1 class="hero-brand">PipelineLab</h1>
+          <p class="hero-lead">
+            Learn how software moves through DEV, Stage, and Prod — and what each
+            environment is for.
+          </p>
+          <div class="hero-cta">
+            <button type="button" class="btn btn-primary" id="btn-tour">
+              Tour the pipeline
+            </button>
+            <button type="button" class="btn btn-ghost" id="btn-concepts">
+              What is CI/CD?
+            </button>
+          </div>
         </div>
       </div>
     </section>
@@ -95,7 +99,7 @@
     </main>
 
     <footer class="site-footer">
-      <div class="footer-inner">
+      <div class="content-rail footer-inner">
         <p class="footer-copy">PipelineLab · Node.js demo · Active runtime env shown in the header</p>
         <nav class="footer-social" aria-label="Social media">
           <a
