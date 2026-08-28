@@ -10,8 +10,8 @@ PHASE 2  Done — Quality (CodeQL, audit, Dependabot; Sonar optional / paused)
 PHASE 3  Done — Versioned artifact + promote same tarball
 PHASE 4  Done — DEV EC2 deploy + health
 PHASE 5  Done (in repo) — STAGE EC2 deploy + smoke/integration
-PHASE 6  Pending — PROD
-PHASE 7  Pending — Pro CI/CD (OIDC, concurrency, etc.)
+PHASE 6  Done (in repo) — PROD (tag + approval + rollback)
+PHASE 7  Pending — Pro CI/CD (OIDC, concurrency hardening, etc.)
 ```
 
 ## Project layout
@@ -28,7 +28,7 @@ PHASE 7  Pending — Pro CI/CD (OIDC, concurrency, etc.)
 │   └── server.js            # Process entrypoint
 ├── public/                  # Static UI
 ├── test/unit/               # Jest unit tests
-├── scripts/                 # Build / deploy / health tools
+├── scripts/                 # Build / deploy / health / rollback tools
 ├── dist/                    # Packaged artifact (gitignored)
 ├── jest.config.js
 ├── eslint.config.js
@@ -59,23 +59,24 @@ Source
   → Build → dist/
   → Package → versioned .tar.gz
   → Upload artifact (GitHub Actions)
-  → Promote SAME .tar.gz → DEV (push develop) or STAGE (push main)
+  → Promote SAME .tar.gz → DEV (push develop) / STAGE (push main) / PROD (tag v*)
   → Health / smoke checks
 ```
 
-**Build once, deploy many times** — DEV/STAGE/PROD should all get the same tarball, not three separate builds.
+**Build once, deploy many times** — DEV/STAGE/PROD should all get the same tarball shape, not three separate build recipes.
 
 > **SonarQube Cloud:** not required in CI right now. `sonar-project.properties` remains if you re-enable a scan later with a valid User `SONAR_TOKEN`.
 
-### Branch → environment
+### Branch / tag → environment
 
-| Branch event | CI | Deploy |
-|--------------|----|--------|
+| Event | CI | Deploy |
+|-------|----|--------|
 | PR → `develop` or `main` | Quality & Build | none |
 | Push → `develop` | Quality & Build | **DEV** (`development`) |
 | Push → `main` | Quality & Build | **STAGE** (`staging`) |
+| Push tag `v*.*.*` | Quality & Build | **PROD** (`production`, **approval required**) |
 
-PRs into `main` must come from `develop` or `hotfix/*` (workflow **Allowed source branch** — add it as a required check on the `main` ruleset).
+PRs into `main` must come from `develop` or `hotfix/*` (workflow **Allowed source branch**).
 
 ### Debug deploy (DEV / STAGE)
 
@@ -203,6 +204,62 @@ Deploy runs on **push to `main`** only. After deploy, CI runs:
 
 1. **Smoke:** `GET /api/health` (must include the promoted artifact name)
 2. **Integration:** `GET /api/pipeline` must succeed
+
+## Phase 6 — PROD (approval + tag + rollback)
+
+### 1. GitHub Environment `production`
+
+Settings → Environments → **New environment** → name: `production`
+
+| Type | Names |
+|------|--------|
+| Variables | `NODE_ENV`, `API_URL` |
+| Secrets | `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY` |
+
+**Required reviewers:** add yourself (or teammates). This is the approval gate — Deploy to PROD waits until someone approves in the Actions UI.
+
+Use a **third EC2** (or clearly separate host) with the same layout as DEV/STAGE:
+
+- `/opt/cicd-learning/deploy.sh`
+- `/opt/cicd-learning/ecosystem.config.js`
+- `/opt/cicd-learning/shared/.env`
+- `/tmp/cicd-learning/`
+- App on `http://127.0.0.1:3010`
+
+### 2. Install rollback script on PROD
+
+From this repo:
+
+```bash
+scp -i KEY -o IdentitiesOnly=yes scripts/rollback.sh ubuntu@PROD_HOST:/opt/cicd-learning/rollback.sh
+ssh -i KEY -o IdentitiesOnly=yes ubuntu@PROD_HOST "chmod +x /opt/cicd-learning/rollback.sh"
+```
+
+### 3. Release with a version tag (from `main`)
+
+```bash
+git checkout main
+git pull origin main
+# optional: bump package.json version to match
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+That starts **Node CI** → Quality & Build → **Deploy to PROD** (waits for environment approval) → smoke checks.
+
+Artifact version comes from the tag (`v1.0.0` → `app-1.0.0-<sha>-<run>.tar.gz`).
+
+### 4. Rollback
+
+**Option A — GitHub Actions (recommended)**  
+Actions → **Rollback PROD** → Run workflow → leave `artifact_name` empty for **previous** release, or paste a release folder name from `/opt/cicd-learning/releases`. Approve the `production` environment when prompted.
+
+**Option B — SSH**
+
+```bash
+ssh ubuntu@PROD_HOST "bash /opt/cicd-learning/rollback.sh"           # previous
+ssh ubuntu@PROD_HOST "bash /opt/cicd-learning/rollback.sh app-1.0.0-abc1234-12"  # specific
+```
 
 ### Dependency scanning (current)
 
