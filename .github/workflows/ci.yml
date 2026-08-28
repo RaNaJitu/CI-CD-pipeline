@@ -5,17 +5,23 @@ on:
     branches:
       - develop
       - main
+    tags:
+      - "v*.*.*"
 
   pull_request:
     branches:
       - develop
       - main
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
 jobs:
   ci:
     name: Quality & Build
     runs-on: ubuntu-latest
-    # No environment on this job — deploy jobs use development / staging.
+    # No environment on this job — deploy jobs use development / staging / production.
     # SonarQube Cloud is omitted for now (optional later). Quality = audit + lint + tests.
 
     permissions:
@@ -70,7 +76,16 @@ jobs:
       - name: Resolve artifact version
         id: version
         run: |
-          VERSION=$(node -p "require('./package.json').version")
+          set -euo pipefail
+
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+            echo "Using version from tag: ${VERSION}"
+          else
+            VERSION=$(node -p "require('./package.json').version")
+            echo "Using version from package.json: ${VERSION}"
+          fi
+
           SHA="${GITHUB_SHA:0:7}"
           NAME="app-${VERSION}-${SHA}-${GITHUB_RUN_NUMBER}"
           echo "app_version=${VERSION}" >> "$GITHUB_OUTPUT"
@@ -96,7 +111,7 @@ jobs:
         with:
           name: ${{ steps.version.outputs.artifact_name }}
           path: artifacts/${{ steps.version.outputs.artifact_name }}.tar.gz
-          retention-days: 14
+          retention-days: 30
           if-no-files-found: error
 
   deploy-dev:
@@ -480,3 +495,188 @@ jobs:
             "ls -la /opt/cicd-learning/current; pm2 status"
 
           echo "STAGE smoke + integration checks passed."
+
+  deploy-prod:
+    name: Deploy to PROD
+    needs: ci
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+
+    steps:
+      - name: Download application artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.ci.outputs.artifact_name }}
+          path: artifacts
+
+      - name: Verify artifact
+        run: |
+          set -euo pipefail
+
+          TARBALL="artifacts/${{ needs.ci.outputs.artifact_name }}.tar.gz"
+
+          echo "Artifact:"
+          ls -lh "$TARBALL"
+
+          echo "Artifact contents:"
+          tar -tzf "$TARBALL" | head -30
+
+          echo "Tag: ${{ github.ref_name }}"
+          echo "App version: ${{ needs.ci.outputs.app_version }}"
+
+      - name: Configure SSH
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${EC2_SSH_KEY:-}" ]; then
+            echo "::error::EC2_SSH_KEY is empty (production environment)."
+            exit 1
+          fi
+
+          if [ -z "${EC2_HOST:-}" ]; then
+            echo "::error::EC2_HOST is empty (production environment)."
+            exit 1
+          fi
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          python3 <<'PYEOF'
+          import base64, os, pathlib, sys
+
+          raw = os.environ["EC2_SSH_KEY"].strip()
+          key_path = pathlib.Path.home() / ".ssh" / "ec2_key"
+
+          def looks_like_pem(text: str) -> bool:
+              return "BEGIN" in text and "PRIVATE KEY" in text
+
+          candidates = []
+          candidates.append(raw.replace("\\n", "\n").replace("\r\n", "\n").strip() + "\n")
+          try:
+              decoded = base64.b64decode(raw, validate=False).decode("utf-8", errors="strict")
+              candidates.append(decoded.replace("\r\n", "\n").strip() + "\n")
+          except Exception:
+              pass
+
+          chosen = None
+          for candidate in candidates:
+              if looks_like_pem(candidate):
+                  chosen = candidate
+                  break
+
+          if chosen is None:
+              print("::error::EC2_SSH_KEY did not contain a PRIVATE KEY block.", file=sys.stderr)
+              sys.exit(1)
+
+          key_path.write_text(chosen)
+          key_path.chmod(0o600)
+          print("Private key file written.")
+          PYEOF
+
+          if ! ssh-keygen -y -f "$HOME/.ssh/ec2_key" >/dev/null 2>&1; then
+            echo "::error::Decoded EC2_SSH_KEY is still not a valid private key."
+            exit 1
+          fi
+
+          echo "SSH private key validated."
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Verify EC2 SSH connection
+        run: |
+          set -euo pipefail
+
+          echo "=== Deploy preflight (production) ==="
+          echo "Tag: ${{ github.ref_name }}"
+          echo "Artifact: ${{ needs.ci.outputs.artifact_name }}"
+
+          ssh \
+            -i ~/.ssh/ec2_key \
+            -o IdentitiesOnly=yes \
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            "bash -s" <<'REMOTE'
+          set -euo pipefail
+          echo "SSH connection successful"
+          echo "hostname=$(hostname)"
+          echo "whoami=$(whoami)"
+          echo "public_ip_guess=$(curl -sS --max-time 2 https://checkip.amazonaws.com || echo n/a)"
+          echo "--- /opt/cicd-learning ---"
+          ls -la /opt/cicd-learning || true
+          echo "--- releases ---"
+          ls -la /opt/cicd-learning/releases || true
+          if [ -f /opt/cicd-learning/shared/.env ]; then
+            echo "shared/.env exists"
+          else
+            echo "::warning::/opt/cicd-learning/shared/.env is MISSING"
+          fi
+          if [ ! -f /opt/cicd-learning/rollback.sh ]; then
+            echo "::warning::rollback.sh missing — copy scripts/rollback.sh to /opt/cicd-learning/rollback.sh"
+          fi
+          pm2 status || true
+          REMOTE
+
+      - name: Upload artifact to EC2
+        run: |
+          set -euo pipefail
+
+          scp \
+            -i ~/.ssh/ec2_key \
+            -o IdentitiesOnly=yes \
+            "artifacts/${{ needs.ci.outputs.artifact_name }}.tar.gz" \
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/tmp/cicd-learning/"
+
+          ssh \
+            -i ~/.ssh/ec2_key \
+            -o IdentitiesOnly=yes \
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            "ls -lh '/tmp/cicd-learning/${{ needs.ci.outputs.artifact_name }}.tar.gz'"
+
+      - name: Deploy artifact on EC2
+        run: |
+          set -euo pipefail
+
+          ssh \
+            -i ~/.ssh/ec2_key \
+            -o IdentitiesOnly=yes \
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            "bash /opt/cicd-learning/deploy.sh '${{ needs.ci.outputs.artifact_name }}'"
+
+      - name: Smoke checks
+        run: |
+          set -euo pipefail
+
+          ARTIFACT='${{ needs.ci.outputs.artifact_name }}'
+
+          HEALTH=$(ssh \
+            -i ~/.ssh/ec2_key \
+            -o IdentitiesOnly=yes \
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            "curl --fail --silent http://127.0.0.1:3010/api/health")
+          echo "$HEALTH"
+
+          PIPELINE=$(ssh \
+            -i ~/.ssh/ec2_key \
+            -o IdentitiesOnly=yes \
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            "curl --fail --silent http://127.0.0.1:3010/api/pipeline")
+          echo "$PIPELINE" | head -c 300
+          echo
+
+          echo "$HEALTH" | grep -q '"status"'
+          echo "$PIPELINE" | grep -q .
+
+          if echo "$HEALTH" | grep -q "$ARTIFACT"; then
+            echo "PROD health includes artifact: $ARTIFACT"
+          else
+            echo "::error::Health JSON did not include artifact name $ARTIFACT"
+            exit 1
+          fi
+
+          echo "PROD deploy verified for tag ${{ github.ref_name }}."
